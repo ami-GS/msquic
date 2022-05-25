@@ -1,8 +1,6 @@
 # Building MsQuic
 
-The MsQuic build system relies on [CMake](https://cmake.org/) (3.16 or better), [.NET Core](https://dotnet.microsoft.com/download/dotnet-core) (Core 3.1 or 5.0 SDK) and [Powershell](https://docs.microsoft.com/en-us/powershell/scripting/install/installing-powershell) (7.0 or better) on all platforms.
-
-> **Note** - clone the repo recursively or run `git submodule update --init --recursive`
+First, clone the repo recursively or run `git submodule update --init --recursive`
 to get all the submodules.
 
 # Source Code
@@ -55,7 +53,8 @@ sudo apt-get install -y powershell
 pwsh
 ```
 
-**Note** - If you get this error trying to install PowerShell:
+> **Note**
+> If you get this error trying to install PowerShell:
 
 ```
 powershell : Depends: libicu55 but it is not installable
@@ -95,18 +94,19 @@ After installing .NET Core, you will need to restart your terminal.
 For the very first time you build, it's recommend to make sure you have all the dependencies installed. You can ensure this by running:
 
 ```PowerShell
-./scripts/prepare-machine.ps1 -Configuration Dev
+./scripts/prepare-machine.ps1
 ```
 
-Note at minimum CMake 3.16 is required. Instructions for installing the newest version on Ubuntu can be found here. https://apt.kitware.com/. The prepare-machine script will not do this for you.
+Note at minimum CMake 3.20 on windows and 3.16 on other platforms is required. Instructions for installing the newest version on Ubuntu can be found here. https://apt.kitware.com/. The prepare-machine script will not do this for you.
 
 ### Additional Requirements on Windows
 
-  * [CMake](https://cmake.org/) (available in "Developer Command Prompt for VS 2019" when "C++ CMake tools for Windows" are installed)
+  * [CMake](https://cmake.org/) (The version installed with Visual Studio will likely not be new enough)
   * [Perl](https://www.perl.org/get.html) optional (required for OpenSSL build)
-  * [Visual Studio 2019](https://www.visualstudio.com/vs/) (or Build Tools for Visual Studio 2019) with
+  * [Visual Studio 2019 or 2022](https://www.visualstudio.com/vs/) (or Build Tools for Visual Studio 2019/2022) with
     - C++ CMake tools for Windows
-    - MSVC v142 - VS 2019 C++ (_Arch_) build tools
+    - MSVC v142 - VS 2019 (or 2022) C++ (_Arch_) build tools
+    - Windows SDK
   * Latest [Windows Insider](https://insider.windows.com/en-us/) builds (required for SChannel build)
 
 ## Running a Build
@@ -192,15 +192,22 @@ Minimally, build needs Xcode 'Command Line Tools`. That can be done via XCode in
 xcode-select --install
 ```
 
-
 ## Generating Build Files
 
 ### Windows
 
-Ensure the corresponding "MSVC v142 - VS 2019 C++ (_Arch_) build tools" are installed for the target arch, e.g. selecting "Desktop development with C++" only includes x64/x86 but not ARM64 by default.
+Ensure the corresponding "MSVC v142 - VS 2019 (or 2022) C++ (_Arch_) build tools" are installed for the target arch, e.g. selecting "Desktop development with C++" only includes x64/x86 but not ARM64 by default.
+
+VS 2019
 ```
 mkdir build && cd build
 cmake -G 'Visual Studio 16 2019' -A x64 ..
+```
+
+VS 2022
+```
+mkdir build && cd build
+cmake -G 'Visual Studio 17 2022' -A x64 ..
 ```
 
 ### Linux
@@ -214,4 +221,20 @@ cmake -G 'Unix Makefiles' ..
 
 ```
 cmake --build .
+```
+
+# Building for Rust
+
+> **Rust support is currently experimental, and not officially supported.**
+
+To build MsQuic for Rust, you still must install the dependencies listed above for the various platforms. Then simply run:
+
+```cmd
+cargo build
+```
+
+To run the tests:
+
+```
+cargo test
 ```

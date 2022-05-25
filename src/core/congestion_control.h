@@ -78,7 +78,7 @@ typedef struct QUIC_CONGESTION_CONTROL {
         _In_ const QUIC_LOSS_EVENT* LossEvent
         );
 
-    void (*QuicCongestionControlOnSpuriousCongestionEvent)(
+    BOOLEAN (*QuicCongestionControlOnSpuriousCongestionEvent)(
         _In_ struct QUIC_CONGESTION_CONTROL* Cc
         );
 
@@ -91,6 +91,10 @@ typedef struct QUIC_CONGESTION_CONTROL {
         );
 
     uint32_t (*QuicCongestionControlGetBytesInFlightMax)(
+        _In_ const struct QUIC_CONGESTION_CONTROL* Cc
+        );
+
+    uint32_t (*QuicCongestionControlGetCongestionWindow)(
         _In_ const struct QUIC_CONGESTION_CONTROL* Cc
         );
 
@@ -110,7 +114,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 void
 QuicCongestionControlInitialize(
     _In_ QUIC_CONGESTION_CONTROL* Cc,
-    _In_ const QUIC_SETTINGS* Settings
+    _In_ const QUIC_SETTINGS_INTERNAL* Settings
     );
 
 //
@@ -225,12 +229,12 @@ QuicCongestionControlOnDataLost(
 //
 _IRQL_requires_max_(DISPATCH_LEVEL)
 inline
-void
+BOOLEAN
 QuicCongestionControlOnSpuriousCongestionEvent(
     _In_ QUIC_CONGESTION_CONTROL* Cc
     )
 {
-    Cc->QuicCongestionControlOnSpuriousCongestionEvent(Cc);
+    return Cc->QuicCongestionControlOnSpuriousCongestionEvent(Cc);
 }
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
@@ -261,4 +265,14 @@ QuicCongestionControlGetBytesInFlightMax(
     )
 {
     return Cc->QuicCongestionControlGetBytesInFlightMax(Cc);
+}
+
+_IRQL_requires_max_(DISPATCH_LEVEL)
+inline
+uint32_t
+QuicCongestionControlGetCongestionWindow(
+    _In_ const QUIC_CONGESTION_CONTROL* Cc
+    )
+{
+    return Cc->QuicCongestionControlGetCongestionWindow(Cc);
 }

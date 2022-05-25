@@ -26,6 +26,8 @@
 
 #define ATTACK_PORT_DEFAULT 443
 
+const QUIC_HKDF_LABELS HkdfLabels = { "quic key", "quic iv", "quic hp", "quic ku" };
+
 static CXPLAT_DATAPATH* Datapath;
 static PacketWriter* Writer;
 
@@ -106,8 +108,9 @@ UdpUnreachCallback(
 
 void RunAttackRandom(CXPLAT_SOCKET* Binding, uint16_t Length, bool ValidQuic)
 {
-    QUIC_ADDR LocalAddress;
-    CxPlatSocketGetLocalAddress(Binding, &LocalAddress);
+    CXPLAT_ROUTE Route;
+    CxPlatSocketGetLocalAddress(Binding, &Route.LocalAddress);
+    Route.RemoteAddress = ServerAddress;
 
     uint64_t ConnectionId = 0;
     CxPlatRandom(sizeof(ConnectionId), &ConnectionId);
@@ -116,7 +119,7 @@ void RunAttackRandom(CXPLAT_SOCKET* Binding, uint16_t Length, bool ValidQuic)
 
         CXPLAT_SEND_DATA* SendData =
             CxPlatSendDataAlloc(
-                Binding, CXPLAT_ECN_NON_ECT, Length);
+                Binding, CXPLAT_ECN_NON_ECT, Length, &Route);
         if (SendData == nullptr) {
             printf("CxPlatSendDataAlloc failed\n");
             return;
@@ -137,7 +140,7 @@ void RunAttackRandom(CXPLAT_SOCKET* Binding, uint16_t Length, bool ValidQuic)
                 QUIC_LONG_HEADER_V1* Header =
                     (QUIC_LONG_HEADER_V1*)SendBuffer->Buffer;
                 Header->IsLongHeader = 1;
-                Header->Type = QUIC_INITIAL;
+                Header->Type = QUIC_INITIAL_V1;
                 Header->FixedBit = 1;
                 Header->Reserved = 0;
                 Header->Version = QUIC_VERSION_LATEST;
@@ -159,8 +162,7 @@ void RunAttackRandom(CXPLAT_SOCKET* Binding, uint16_t Length, bool ValidQuic)
         QUIC_SUCCEEDED(
         CxPlatSocketSend(
             Binding,
-            &LocalAddress,
-            &ServerAddress,
+            &Route,
             SendData,
             (uint16_t)CxPlatProcCurrentNumber())));
     }
@@ -185,8 +187,9 @@ void RunAttackValidInitial(CXPLAT_SOCKET* Binding)
     const uint16_t DatagramLength = QUIC_MIN_INITIAL_LENGTH;
     const uint64_t PacketNumber = 0;
 
-    QUIC_ADDR LocalAddress;
-    CxPlatSocketGetLocalAddress(Binding, &LocalAddress);
+    CXPLAT_ROUTE Route;
+    CxPlatSocketGetLocalAddress(Binding, &Route.LocalAddress);
+    Route.RemoteAddress = ServerAddress;
 
     uint8_t Packet[512] = {0};
     uint16_t PacketLength, HeaderLength;
@@ -220,7 +223,7 @@ void RunAttackValidInitial(CXPLAT_SOCKET* Binding)
 
         CXPLAT_SEND_DATA* SendData =
             CxPlatSendDataAlloc(
-                Binding, CXPLAT_ECN_NON_ECT, DatagramLength);
+                Binding, CXPLAT_ECN_NON_ECT, DatagramLength, &Route);
         VERIFY(SendData);
 
         while (CxPlatTimeDiff64(TimeStart, CxPlatTimeMs64()) < TimeoutMs &&
@@ -240,6 +243,7 @@ void RunAttackValidInitial(CXPLAT_SOCKET* Binding)
             QUIC_SUCCEEDED(
             QuicPacketKeyCreateInitial(
                 FALSE,
+                &HkdfLabels,
                 InitialSalt.Data,
                 sizeof(uint64_t),
                 (uint8_t*)DestCid,
@@ -290,8 +294,7 @@ void RunAttackValidInitial(CXPLAT_SOCKET* Binding)
         QUIC_SUCCEEDED(
         CxPlatSocketSend(
             Binding,
-            &LocalAddress,
-            &ServerAddress,
+            &Route,
             SendData,
             (uint16_t)CxPlatProcCurrentNumber())));
     }
@@ -390,6 +393,7 @@ main(
     CxPlatDataPathInitialize(
         0,
         &DatapathCallbacks,
+        NULL,
         NULL,
         &Datapath);
 

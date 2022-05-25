@@ -68,7 +68,6 @@ QuicPathRemove(
     }
 
     Connection->PathsCount--;
-    CXPLAT_DBG_ASSERT(Connection->PathsCount != 0);
 }
 
 _IRQL_requires_max_(PASSIVE_LEVEL)
@@ -169,6 +168,20 @@ QuicConnGetPathByID(
 }
 
 _IRQL_requires_max_(PASSIVE_LEVEL)
+void
+QuicCopyRouteInfo(
+    _Inout_ CXPLAT_ROUTE* DstRoute,
+    _In_ CXPLAT_ROUTE* SrcRoute
+    )
+{
+#ifdef QUIC_USE_RAW_DATAPATH
+    CxPlatCopyMemory(DstRoute, SrcRoute, (uint8_t*)&SrcRoute->State - (uint8_t*)SrcRoute);
+#else
+    *DstRoute = *SrcRoute;
+#endif
+}
+
+_IRQL_requires_max_(PASSIVE_LEVEL)
 _Ret_maybenull_
 QUIC_PATH*
 QuicConnGetPathForDatagram(
@@ -178,11 +191,11 @@ QuicConnGetPathForDatagram(
 {
     for (uint8_t i = 0; i < Connection->PathsCount; ++i) {
         if (!QuicAddrCompare(
-                &Datagram->Tuple->LocalAddress,
-                &Connection->Paths[i].LocalAddress) ||
+                &Datagram->Route->LocalAddress,
+                &Connection->Paths[i].Route.LocalAddress) ||
             !QuicAddrCompare(
-                &Datagram->Tuple->RemoteAddress,
-                &Connection->Paths[i].RemoteAddress)) {
+                &Datagram->Route->RemoteAddress,
+                &Connection->Paths[i].Route.RemoteAddress)) {
             if (!Connection->State.HandshakeConfirmed) {
                 //
                 // Ignore packets on any other paths until connected/confirmed.
@@ -203,9 +216,9 @@ QuicConnGetPathForDatagram(
         //
         for (uint8_t i = Connection->PathsCount - 1; i > 0; i--) {
             if (!Connection->Paths[i].IsActive
-                && QuicAddrGetFamily(&Datagram->Tuple->RemoteAddress) == QuicAddrGetFamily(&Connection->Paths[i].RemoteAddress)
-                && QuicAddrCompareIp(&Datagram->Tuple->RemoteAddress, &Connection->Paths[i].RemoteAddress)
-                && QuicAddrCompare(&Datagram->Tuple->LocalAddress, &Connection->Paths[i].LocalAddress)) {
+                && QuicAddrGetFamily(&Datagram->Route->RemoteAddress) == QuicAddrGetFamily(&Connection->Paths[i].Route.RemoteAddress)
+                && QuicAddrCompareIp(&Datagram->Route->RemoteAddress, &Connection->Paths[i].Route.RemoteAddress)
+                && QuicAddrCompare(&Datagram->Route->LocalAddress, &Connection->Paths[i].Route.LocalAddress)) {
                 QuicPathRemove(Connection, i);
             }
         }
@@ -237,8 +250,7 @@ QuicConnGetPathForDatagram(
         Path->DestCid = Connection->Paths[0].DestCid; // TODO - Copy instead?
     }
     Path->Binding = Connection->Paths[0].Binding;
-    Path->LocalAddress = Datagram->Tuple->LocalAddress;
-    Path->RemoteAddress = Datagram->Tuple->RemoteAddress;
+    QuicCopyRouteInfo(&Path->Route, Datagram->Route);
     QuicPathValidate(Path);
 
     return Path;
@@ -258,8 +270,8 @@ QuicPathSetActive(
     } else {
         CXPLAT_DBG_ASSERT(Path->DestCid != NULL);
         UdpPortChangeOnly =
-            QuicAddrGetFamily(&Path->RemoteAddress) == QuicAddrGetFamily(&Connection->Paths[0].RemoteAddress) &&
-            QuicAddrCompareIp(&Path->RemoteAddress, &Connection->Paths[0].RemoteAddress);
+            QuicAddrGetFamily(&Path->Route.RemoteAddress) == QuicAddrGetFamily(&Connection->Paths[0].Route.RemoteAddress) &&
+            QuicAddrCompareIp(&Path->Route.RemoteAddress, &Connection->Paths[0].Route.RemoteAddress);
 
         QUIC_PATH PrevActivePath = Connection->Paths[0];
 

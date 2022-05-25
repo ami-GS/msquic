@@ -39,14 +39,15 @@ QuicHandleRpsClient(
         return QUIC_STATUS_INVALID_PARAMETER;
     }
     uint32_t RunTime;
-    uint32_t CachedCompletedRequests;
+    uint64_t CachedCompletedRequests;
     CxPlatCopyMemory(&RunTime, ExtraData, sizeof(RunTime));
     ExtraData += sizeof(RunTime);
     CxPlatCopyMemory(&CachedCompletedRequests, ExtraData, sizeof(CachedCompletedRequests));
     ExtraData += sizeof(CachedCompletedRequests);
+    CXPLAT_FRE_ASSERT(CachedCompletedRequests <= UINT32_MAX);
     uint32_t RestOfBufferLength = Length - sizeof(RunTime) - sizeof(CachedCompletedRequests);
     RestOfBufferLength &= 0xFFFFFFFC; // Round down to nearest multiple of 4
-    uint32_t MaxCount = CXPLAT_MIN(CachedCompletedRequests, RestOfBufferLength);
+    uint32_t MaxCount = CXPLAT_MIN((uint32_t)CachedCompletedRequests, RestOfBufferLength);
 
     uint32_t RPS = (uint32_t)((CachedCompletedRequests * 1000ull) / (uint64_t)RunTime);
     if (RPS == 0) {
@@ -158,8 +159,8 @@ QuicUserMain(
         Status = QuicHandleRpsClient(Buffer.get(), Metadata.ExtraDataLength, FileName);
     }
 
-    printf("App Main returning status %d\n", Status);
     QuicMainFree();
+    printf("App Main returning status %d\n", Status);
     return Status;
 }
 
@@ -371,12 +372,13 @@ main(
     _In_reads_(argc) _Null_terminated_ char* argv[]
     ) {
     QUIC_STATUS Status = QUIC_STATUS_SUCCESS;
-    const QUIC_CREDENTIAL_CONFIG* SelfSignedCredConfig = nullptr;
+    QUIC_CREDENTIAL_CONFIG* SelfSignedCredConfig = nullptr;
     QUIC_STATUS RetVal = 0;
     bool KeyboardWait = false;
     const char* FileName = nullptr;
     const char* DriverName = nullptr;
     bool PrivateTestLibrary = false;
+    uint8_t CipherSuite = 0;
     constexpr const char* DriverSearch = "driverName";
     size_t DriverLen = strlen(DriverSearch);
 
@@ -434,6 +436,11 @@ main(
         printf("Creating self signed certificate failed\n");
         RetVal = QUIC_STATUS_INTERNAL_ERROR;
         goto Exit;
+    }
+
+    if (TryGetValue(argc, argv, "cipher", &CipherSuite)) {
+        SelfSignedCredConfig->Flags |= QUIC_CREDENTIAL_FLAG_SET_ALLOWED_CIPHER_SUITES;
+        SelfSignedCredConfig->AllowedCipherSuites = (QUIC_ALLOWED_CIPHER_SUITE_FLAGS)CipherSuite;
     }
 
     if (DriverName != nullptr) {

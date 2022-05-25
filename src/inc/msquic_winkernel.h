@@ -118,6 +118,7 @@ typedef UINT64 uint64_t;
 
 #define QUIC_STATUS_CERT_EXPIRED            ((NTSTATUS)0x800B0101L)     // CERT_E_EXPIRED
 #define QUIC_STATUS_CERT_UNTRUSTED_ROOT     ((NTSTATUS)0x800B0109L)     // CERT_E_UNTRUSTEDROOT
+#define QUIC_STATUS_CERT_NO_CERT            ((NTSTATUS)0x8009030EL)     // SEC_E_NO_CREDENTIALS
 
 //
 // Swaps byte orders between host and network endianness.
@@ -304,13 +305,15 @@ QuicAddrFromString(
     _Out_ QUIC_ADDR* Addr
     )
 {
-    Addr->Ipv4.sin_port = QuicNetByteSwapShort(Port);
     if (RtlIpv4StringToAddressExA(AddrStr, FALSE, &Addr->Ipv4.sin_addr, &Addr->Ipv4.sin_port) == STATUS_SUCCESS) {
         Addr->si_family = QUIC_ADDRESS_FAMILY_INET;
     } else if (RtlIpv6StringToAddressExA(AddrStr, &Addr->Ipv6.sin6_addr, &Addr->Ipv6.sin6_scope_id, &Addr->Ipv6.sin6_port) == STATUS_SUCCESS) {
         Addr->si_family = QUIC_ADDRESS_FAMILY_INET6;
     } else {
         return FALSE;
+    }
+    if (Addr->Ipv4.sin_port == 0) {
+        Addr->Ipv4.sin_port = QuicNetByteSwapShort(Port);
     }
     return TRUE;
 }

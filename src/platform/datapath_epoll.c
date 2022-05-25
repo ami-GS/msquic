@@ -91,10 +91,9 @@ typedef struct CXPLAT_DATAPATH_RECV_BLOCK {
     CXPLAT_RECV_DATA RecvPacket;
 
     //
-    // Represents the address (source and destination) information of the
-    // packet.
+    // Represents the network route.
     //
-    CXPLAT_TUPLE Tuple;
+    CXPLAT_ROUTE Route;
 
     //
     // Buffer that actually stores the UDP payload.
@@ -343,9 +342,14 @@ typedef struct CXPLAT_DATAPATH_PROC_CONTEXT {
     uint32_t Index;
 
     //
-    // The epoll wait thread.
+    // Thread ID of the worker thread that drives execution.
     //
-    CXPLAT_THREAD EpollWaitThread;
+    CXPLAT_THREAD_ID ThreadId;
+
+    //
+    // Completion event to indicate the worker has cleaned up.
+    //
+    CXPLAT_EVENT CompletionEvent;
 
     //
     // Pool of receive packet contexts and buffers to be shared by all sockets
@@ -421,11 +425,6 @@ typedef struct CXPLAT_DATAPATH {
 
 } CXPLAT_DATAPATH;
 
-void*
-CxPlatDataPathWorkerThread(
-    _In_ void* Context
-    );
-
 QUIC_STATUS
 CxPlatSocketSendInternal(
     _In_ CXPLAT_SOCKET* Socket,
@@ -490,8 +489,8 @@ CxPlatProcessorContextUninitialize(
 {
     const eventfd_t Value = 1;
     eventfd_write(ProcContext->EventFd, Value);
-    CxPlatThreadWait(&ProcContext->EpollWaitThread);
-    CxPlatThreadDelete(&ProcContext->EpollWaitThread);
+    CxPlatEventWaitForever(ProcContext->CompletionEvent);
+    CxPlatEventUninitialize(ProcContext->CompletionEvent);
 
     epoll_ctl(ProcContext->EpollFd, EPOLL_CTL_DEL, ProcContext->EventFd, NULL);
     close(ProcContext->EventFd);
@@ -516,7 +515,6 @@ CxPlatProcessorContextInitialize(
     int Ret = 0;
     uint32_t RecvPacketLength = 0;
     BOOLEAN EventFdAdded = FALSE;
-    BOOLEAN ThreadCreated = FALSE;
 
     CXPLAT_DBG_ASSERT(Datapath != NULL);
 
@@ -590,6 +588,7 @@ CxPlatProcessorContextInitialize(
     ProcContext->Datapath = Datapath;
     ProcContext->EpollFd = EpollFd;
     ProcContext->EventFd = EventFd;
+    ProcContext->ThreadId = 0;
 
     //
     // Starting the thread must be done after the rest of the ProcContext
@@ -597,46 +596,25 @@ CxPlatProcessorContextInitialize(
     // ProcContext members.
     //
 
-    CXPLAT_THREAD_CONFIG ThreadConfig = {
-        CXPLAT_THREAD_FLAG_SET_AFFINITIZE,
-        (uint16_t)Index,
-        NULL,
-        CxPlatDataPathWorkerThread,
-        ProcContext
-    };
-
-    Status = CxPlatThreadCreate(&ThreadConfig, &ProcContext->EpollWaitThread);
-    if (QUIC_FAILED(Status)) {
-        QuicTraceEvent(
-            LibraryErrorStatus,
-            "[ lib] ERROR, %u, %s.",
-            Status,
-            "CxPlatThreadCreate failed");
-        goto Exit;
-    }
-
-    ThreadCreated = TRUE;
+    CxPlatEventInitialize(&ProcContext->CompletionEvent, TRUE, FALSE);
+    CxPlatWorkerRegisterDataPath((uint16_t)Index, ProcContext);
 
 Exit:
 
     if (QUIC_FAILED(Status)) {
-        if (ThreadCreated) {
-            CxPlatProcessorContextUninitialize(ProcContext);
-        } else {
-            if (EventFdAdded) {
-                epoll_ctl(EpollFd, EPOLL_CTL_DEL, EventFd, NULL);
-            }
-            if (EventFd != INVALID_SOCKET) {
-                close(EventFd);
-            }
-            if (EpollFd != INVALID_SOCKET) {
-                close(EpollFd);
-            }
-            CxPlatPoolUninitialize(&ProcContext->RecvBlockPool);
-            CxPlatPoolUninitialize(&ProcContext->LargeSendBufferPool);
-            CxPlatPoolUninitialize(&ProcContext->SendBufferPool);
-            CxPlatPoolUninitialize(&ProcContext->SendDataPool);
+        if (EventFdAdded) {
+            epoll_ctl(EpollFd, EPOLL_CTL_DEL, EventFd, NULL);
         }
+        if (EventFd != INVALID_SOCKET) {
+            close(EventFd);
+        }
+        if (EpollFd != INVALID_SOCKET) {
+            close(EpollFd);
+        }
+        CxPlatPoolUninitialize(&ProcContext->RecvBlockPool);
+        CxPlatPoolUninitialize(&ProcContext->LargeSendBufferPool);
+        CxPlatPoolUninitialize(&ProcContext->SendBufferPool);
+        CxPlatPoolUninitialize(&ProcContext->SendDataPool);
     }
 
     return Status;
@@ -647,10 +625,12 @@ CxPlatDataPathInitialize(
     _In_ uint32_t ClientRecvContextLength,
     _In_opt_ const CXPLAT_UDP_DATAPATH_CALLBACKS* UdpCallbacks,
     _In_opt_ const CXPLAT_TCP_DATAPATH_CALLBACKS* TcpCallbacks,
+    _In_opt_ CXPLAT_DATAPATH_CONFIG* Config,
     _Out_ CXPLAT_DATAPATH** NewDataPath
     )
 {
     UNREFERENCED_PARAMETER(TcpCallbacks);
+    UNREFERENCED_PARAMETER(Config);
     if (NewDataPath == NULL) {
         return QUIC_STATUS_INVALID_PARAMETER;
     }
@@ -1356,19 +1336,6 @@ Exit:
 }
 
 void
-CxPlatSocketContextUninitialize(
-    _In_ CXPLAT_SOCKET_CONTEXT* SocketContext
-    )
-{
-    int EpollRes =
-        epoll_ctl(SocketContext->ProcContext->EpollFd, EPOLL_CTL_DEL, SocketContext->SocketFd, NULL);
-    CXPLAT_FRE_ASSERT(EpollRes == 0);
-
-    const eventfd_t Value = 1;
-    eventfd_write(SocketContext->CleanupFd, Value);
-}
-
-void
 CxPlatSocketContextUninitializeComplete(
     _In_ CXPLAT_SOCKET_CONTEXT* SocketContext
     )
@@ -1394,6 +1361,23 @@ CxPlatSocketContextUninitializeComplete(
     close(SocketContext->SocketFd);
 
     CxPlatRundownRelease(&SocketContext->Binding->Rundown);
+}
+
+void
+CxPlatSocketContextUninitialize(
+    _In_ CXPLAT_SOCKET_CONTEXT* SocketContext
+    )
+{
+    int EpollRes =
+        epoll_ctl(SocketContext->ProcContext->EpollFd, EPOLL_CTL_DEL, SocketContext->SocketFd, NULL);
+    CXPLAT_FRE_ASSERT(EpollRes == 0);
+
+    if (CxPlatCurThreadID() != SocketContext->ProcContext->ThreadId) {
+        const eventfd_t Value = 1;
+        eventfd_write(SocketContext->CleanupFd, Value);
+    } else {
+        CxPlatSocketContextUninitializeComplete(SocketContext);
+    }
 }
 
 QUIC_STATUS
@@ -1422,10 +1406,10 @@ CxPlatSocketContextPrepareReceive(
 
         SocketContext->RecvIov[i].iov_base = CurrentBlock->RecvPacket.Buffer;
         CurrentBlock->RecvPacket.BufferLength = SocketContext->RecvIov[i].iov_len;
-        CurrentBlock->RecvPacket.Tuple = &CurrentBlock->Tuple;
+        CurrentBlock->RecvPacket.Route = &CurrentBlock->Route;
 
-        MsgHdr->msg_name = &CurrentBlock->RecvPacket.Tuple->RemoteAddress;
-        MsgHdr->msg_namelen = sizeof(CurrentBlock->RecvPacket.Tuple->RemoteAddress);
+        MsgHdr->msg_name = &CurrentBlock->RecvPacket.Route->RemoteAddress;
+        MsgHdr->msg_namelen = sizeof(CurrentBlock->RecvPacket.Route->RemoteAddress);
         MsgHdr->msg_iov = &SocketContext->RecvIov[i];
         MsgHdr->msg_iovlen = 1;
         MsgHdr->msg_control = &SocketContext->RecvMsgControl[i].Data;
@@ -1447,7 +1431,7 @@ CxPlatSocketContextStartReceive(
     }
 
     struct epoll_event SockFdEpEvt = {
-        .events = EPOLLIN | EPOLLET,
+        .events = EPOLLIN,
         .data = {
             .ptr = &SocketContext->EventContexts[QUIC_SOCK_EVENT_SOCKET]
         }
@@ -1514,11 +1498,11 @@ CxPlatSocketContextRecvComplete(
 
         BOOLEAN FoundLocalAddr = FALSE;
         BOOLEAN FoundTOS = FALSE;
-        QUIC_ADDR* LocalAddr = &RecvPacket->Tuple->LocalAddress;
+        QUIC_ADDR* LocalAddr = &RecvPacket->Route->LocalAddress;
         if (LocalAddr->Ipv6.sin6_family == AF_INET6) {
             LocalAddr->Ipv6.sin6_family = QUIC_ADDRESS_FAMILY_INET6;
         }
-        QUIC_ADDR* RemoteAddr = &RecvPacket->Tuple->RemoteAddress;
+        QUIC_ADDR* RemoteAddr = &RecvPacket->Route->RemoteAddress;
         if (RemoteAddr->Ipv6.sin6_family == AF_INET6) {
             RemoteAddr->Ipv6.sin6_family = QUIC_ADDRESS_FAMILY_INET6;
         }
@@ -1660,7 +1644,7 @@ CxPlatSocketContextSendComplete(
     CXPLAT_SEND_DATA* SendData = NULL;
 
     struct epoll_event SockFdEpEvt = {
-        .events = EPOLLIN | EPOLLET,
+        .events = EPOLLIN,
         .data = {
             .ptr = &SocketContext->EventContexts[QUIC_SOCK_EVENT_SOCKET]
         }
@@ -1787,7 +1771,10 @@ CxPlatSocketContextProcessEvents(
     }
 
     if (EPOLLIN & Events) {
-        while (TRUE) {
+        //
+        // Read up to 4 receives before moving to another event.
+        //
+        for (int i = 0; i < 4; i++) {
 
             for (ssize_t i = 0; i < CXPLAT_MAX_BATCH_RECEIVE; i++) {
                 CXPLAT_DBG_ASSERT(SocketContext->CurrentRecvBlocks[i] != NULL);
@@ -2055,8 +2042,7 @@ CxPlatSocketDelete(
     Socket->Shutdown = TRUE;
     uint32_t SocketCount = Socket->HasFixedRemoteAddress ? 1 : Socket->Datapath->ProcCount;
     for (uint32_t i = 0; i < SocketCount; ++i) {
-        CxPlatSocketContextUninitialize(
-            &Socket->SocketContexts[i]);
+        CxPlatSocketContextUninitialize(&Socket->SocketContexts[i]);
     }
 
     CxPlatRundownReleaseAndWait(&Socket->Rundown);
@@ -2162,9 +2148,11 @@ CXPLAT_SEND_DATA*
 CxPlatSendDataAlloc(
     _In_ CXPLAT_SOCKET* Socket,
     _In_ CXPLAT_ECN_TYPE ECN,
-    _In_ uint16_t MaxPacketSize
+    _In_ uint16_t MaxPacketSize,
+    _Inout_ CXPLAT_ROUTE* Route
     )
 {
+    UNREFERENCED_PARAMETER(Route);
     CXPLAT_DBG_ASSERT(Socket != NULL);
 
     CXPLAT_DATAPATH_PROC_CONTEXT* DatapathProc =
@@ -2395,16 +2383,22 @@ CxPlatSendDataFreeBuffer(
     // This must be the final send buffer; intermediate buffers cannot be freed.
     //
     CXPLAT_DATAPATH_PROC_CONTEXT* DatapathProc = SendData->Owner;
+#ifdef DEBUG
     uint8_t* TailBuffer = SendData->Buffers[SendData->BufferCount - 1].Buffer;
+#endif
 
     if (SendData->SegmentSize == 0) {
+#ifdef DEBUG
         CXPLAT_DBG_ASSERT(Buffer->Buffer == (uint8_t*)TailBuffer);
+#endif
 
         CxPlatPoolFree(&DatapathProc->SendBufferPool, Buffer->Buffer);
         --SendData->BufferCount;
     } else {
+#ifdef DEBUG
         TailBuffer += SendData->Buffers[SendData->BufferCount - 1].Length;
         CXPLAT_DBG_ASSERT(Buffer->Buffer == (uint8_t*)TailBuffer);
+#endif
 
         if (SendData->Buffers[SendData->BufferCount - 1].Length == 0) {
             CxPlatPoolFree(&DatapathProc->LargeSendBufferPool, Buffer->Buffer);
@@ -2620,7 +2614,7 @@ CxPlatSocketSendInternal(
                 }
                 SendPending = TRUE;
                 struct epoll_event SockFdEpEvt = {
-                    .events = EPOLLIN | EPOLLOUT | EPOLLET,
+                    .events = EPOLLIN | EPOLLOUT,
                     .data = {
                         .ptr = &SocketContext->EventContexts[QUIC_SOCK_EVENT_SOCKET]
                     }
@@ -2690,8 +2684,7 @@ Exit:
 QUIC_STATUS
 CxPlatSocketSend(
     _In_ CXPLAT_SOCKET* Socket,
-    _In_ const QUIC_ADDR* LocalAddress,
-    _In_ const QUIC_ADDR* RemoteAddress,
+    _In_ const CXPLAT_ROUTE* Route,
     _In_ CXPLAT_SEND_DATA* SendData,
     _In_ uint16_t IdealProcessor
     )
@@ -2700,8 +2693,8 @@ CxPlatSocketSend(
     QUIC_STATUS Status =
         CxPlatSocketSendInternal(
             Socket,
-            LocalAddress,
-            RemoteAddress,
+            &Route->LocalAddress,
+            &Route->RemoteAddress,
             SendData,
             FALSE);
     if (Status == QUIC_STATUS_PENDING) {
@@ -2730,52 +2723,55 @@ CxPlatSocketGetLocalMtu(
     })
 #endif
 
-void*
-CxPlatDataPathWorkerThread(
+void
+CxPlatDataPathWake(
     _In_ void* Context
     )
 {
     CXPLAT_DATAPATH_PROC_CONTEXT* ProcContext = (CXPLAT_DATAPATH_PROC_CONTEXT*)Context;
-    CXPLAT_DBG_ASSERT(ProcContext != NULL && ProcContext->Datapath != NULL);
+    const eventfd_t Value = 1;
+    eventfd_write(ProcContext->EventFd, Value);
+}
 
-    QuicTraceLogInfo(
-        DatapathWorkerThreadStart,
-        "[data][%p] Worker start",
-        ProcContext);
+void
+CxPlatDataPathRunEC(
+    _In_ void** Context,
+    _In_ CXPLAT_THREAD_ID CurThreadId,
+    _In_ uint32_t WaitTime
+    )
+{
+    CXPLAT_DATAPATH_PROC_CONTEXT** EcProcContext = (CXPLAT_DATAPATH_PROC_CONTEXT**)Context;
+    CXPLAT_DATAPATH_PROC_CONTEXT* ProcContext = *EcProcContext;
+    CXPLAT_DBG_ASSERT(ProcContext->Datapath != NULL);
 
     const size_t EpollEventCtMax = 16; // TODO: Experiment.
     struct epoll_event EpollEvents[EpollEventCtMax];
 
-    while (!ProcContext->Datapath->Shutdown) {
-        int ReadyEventCount =
-            TEMP_FAILURE_RETRY(
-                epoll_wait(
-                    ProcContext->EpollFd,
-                    EpollEvents,
-                    EpollEventCtMax,
-                    -1));
+    ProcContext->ThreadId = CurThreadId;
 
-        CXPLAT_FRE_ASSERT(ReadyEventCount >= 0);
-        for (int i = 0; i < ReadyEventCount; i++) {
-            if (EpollEvents[i].data.ptr == NULL) {
-                //
-                // The processor context is shutting down and the worker thread
-                // needs to clean up.
-                //
-                CXPLAT_DBG_ASSERT(ProcContext->Datapath->Shutdown);
-                break;
-            }
+    int ReadyEventCount =
+        TEMP_FAILURE_RETRY(
+            epoll_wait(
+                ProcContext->EpollFd,
+                EpollEvents,
+                EpollEventCtMax,
+                WaitTime == UINT32_MAX ? -1 : (int)WaitTime)); // TODO - Handle wrap around?
 
+    if (ProcContext->Datapath->Shutdown) {
+        *Context = NULL;
+        CxPlatEventSet(ProcContext->CompletionEvent);
+        return;
+    }
+
+    if (ReadyEventCount == 0) {
+        return; // Wake for timeout.
+    }
+
+    for (int i = 0; i < ReadyEventCount; i++) {
+        if (EpollEvents[i].data.ptr != NULL) {
             CxPlatSocketContextProcessEvents(
                 EpollEvents[i].data.ptr,
                 EpollEvents[i].events);
         }
     }
-
-    QuicTraceLogInfo(
-        DatapathWorkerThreadStop,
-        "[data][%p] Worker stop",
-        ProcContext);
-
-    return 0;
 }

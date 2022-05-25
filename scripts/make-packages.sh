@@ -13,6 +13,8 @@ CONFIG=Release
 NAME=libmsquic
 CONFLICTS=
 DESCRIPTION="Microsoft implementation of the IETF QUIC protocol"
+VENDOR="Microsoft"
+MAINTAINER="Microsoft QUIC Team <quicdev@microsoft.com>"
 VER_MAJOR=$(cat ./src/inc/msquic.ver | grep 'define VER_MAJOR'| cut -d ' ' -f 3)
 VER_MINOR=$(cat ./src/inc/msquic.ver | grep 'define VER_MINOR'| cut -d ' ' -f 3)
 VER_PATCH=$(cat ./src/inc/msquic.ver | grep 'define VER_PATCH'| cut -d ' ' -f 3)
@@ -76,16 +78,12 @@ done
 
 if [ ${CONFIG} != 'Release' ]; then
   NAME=libmsquic-debug
-  CONFLICTS='--conflicts libmsquic'
+  CONFLICTS='libmsquic'
 else
-  CONFLICTS='--conflicts libmsquic-debug'
+  CONFLICTS='libmsquic-debug'
 fi
 
 ARTIFACTS="artifacts/bin/${OS}/${ARCH}_${CONFIG}_openssl"
-if [ ! -e "$ARTIFACTS/libmsquic.${LIBEXT}" ]; then
-    echo "$ARTIFACTS/libmsquic.${LIBEXT}" does not exist. Run build first.
-    exit 1
-fi
 
 if [ -z ${OUTPUT} ]; then
     OUTPUT="artifacts/packages/${OS}/${ARCH}_${CONFIG}_openssl"
@@ -94,37 +92,75 @@ fi
 mkdir -p ${OUTPUT}
 
 if [ "$OS" == "linux" ]; then
+  # Create symlink
+  ln -s "${ARTIFACTS}/libmsquic.${LIBEXT}.${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}" "${ARTIFACTS}/libmsquic.${LIBEXT}.${VER_MAJOR}"
+
   # RedHat/CentOS
-  FILES="${ARTIFACTS}/libmsquic.${LIBEXT}=/usr/${LIBDIR}/libmsquic.${LIBEXT}"
-  if [ -e "$ARTIFACTS/libmsquic.lttng.${LIBEXT}" ]; then
-     FILES="${FILES} ${ARTIFACTS}/libmsquic.lttng.${LIBEXT}=/usr/${LIBDIR}/libmsquic.lttng.${LIBEXT}"
+  FILES="${ARTIFACTS}/libmsquic.${LIBEXT}.${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}=/usr/${LIBDIR}/libmsquic.${LIBEXT}.${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}"
+  FILES="${FILES} ${ARTIFACTS}/libmsquic.${LIBEXT}.${VER_MAJOR}=/usr/${LIBDIR}/libmsquic.${LIBEXT}.${VER_MAJOR}"
+  if [ -e "$ARTIFACTS/libmsquic.lttng.${LIBEXT}.${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}" ]; then
+     FILES="${FILES} ${ARTIFACTS}/libmsquic.lttng.${LIBEXT}.${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}=/usr/${LIBDIR}/libmsquic.lttng.${LIBEXT}.${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}"
   fi
-  fpm -f -s dir -t rpm  -n ${NAME} -v ${VER_MAJOR}.${VER_MINOR}.${VER_PATCH} --license MIT --url https://github.com/microsoft/msquic \
-    --package "$OUTPUT" --log error \
+  fpm \
+    --force \
+    --input-type dir \
+    --output-type rpm \
+    --name ${NAME} \
+    --provides ${NAME} \
+    --conflicts ${CONFLICTS} \
+    --version ${VER_MAJOR}.${VER_MINOR}.${VER_PATCH} \
     --description "${DESCRIPTION}" \
-    --provides libmsquic.so \
-    ${CONFLICTS} \
+    --vendor "${VENDOR}" \
+    --maintainer "${MAINTAINER}" \
+    --package "${OUTPUT}" \
+    --license MIT \
+    --url https://github.com/microsoft/msquic \
+    --log error \
     ${FILES}
 
   # Debian/Ubuntu
   if [ "$LIBDIR" == 'lib64' ]; then
       LIBDIR="lib/x86_64-linux-gnu"
   fi
-  FILES="${ARTIFACTS}/libmsquic.${LIBEXT}=/usr/${LIBDIR}/libmsquic.${LIBEXT}"
-  if [ -e "$ARTIFACTS/libmsquic.lttng.${LIBEXT}" ]; then
-     FILES="${FILES} ${ARTIFACTS}/libmsquic.lttng.${LIBEXT}=/usr/${LIBDIR}/libmsquic.lttng.${LIBEXT}"
+  FILES="${ARTIFACTS}/libmsquic.${LIBEXT}.${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}=/usr/${LIBDIR}/libmsquic.${LIBEXT}.${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}"
+  FILES="${FILES} ${ARTIFACTS}/libmsquic.${LIBEXT}.${VER_MAJOR}=/usr/${LIBDIR}/libmsquic.${LIBEXT}.${VER_MAJOR}"
+  if [ -e "$ARTIFACTS/libmsquic.lttng.${LIBEXT}.${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}" ]; then
+     FILES="${FILES} ${ARTIFACTS}/libmsquic.lttng.${LIBEXT}.${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}=/usr/${LIBDIR}/libmsquic.lttng.${LIBEXT}.${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}"
   fi
-  fpm -f -s dir -t deb  -n ${NAME} -v ${VER_MAJOR}.${VER_MINOR}.${VER_PATCH} --license MIT --url https://github.com/microsoft/msquic \
-    --package "$OUTPUT" --log error \
+  fpm \
+    --force \
+    --input-type dir \
+    --output-type deb \
+    --name ${NAME} \
+    --provides ${NAME} \
+    --conflicts ${CONFLICTS} \
+    --version ${VER_MAJOR}.${VER_MINOR}.${VER_PATCH} \
     --description "${DESCRIPTION}" \
-    --provides libmsquic.so \
-    ${CONFLICTS} \
+    --vendor "${VENDOR}" \
+    --maintainer "${MAINTAINER}" \
+    --package "${OUTPUT}" \
+    --license MIT \
+    --url https://github.com/microsoft/msquic \
+    --log error \
     ${FILES}
 fi
+
+# macOS
 if [ "$OS" == "macos" ]; then
-  fpm -f -s dir -t osxpkg -n ${NAME} -v ${VER_MAJOR}.${VER_MINOR}.${VER_PATCH} --license MIT --url https://github.com/microsoft/msquic \
-    --package "$OUTPUT" --log error \
+  fpm \
+    --force \
+    --input-type dir \
+    --output-type osxpkg \
+    --name ${NAME} \
+    --provides ${NAME} \
+    --conflicts ${CONFLICTS} \
+    --version ${VER_MAJOR}.${VER_MINOR}.${VER_PATCH} \
     --description "${DESCRIPTION}" \
-    --provides libmsquic.dylib \
-    "$ARTIFACTS/libmsquic.dylib"=/usr/local/lib/libmsquic.dylib
+    --vendor "${VENDOR}" \
+    --maintainer "${MAINTAINER}" \
+    --package "${OUTPUT}" \
+    --license MIT \
+    --url https://github.com/microsoft/msquic \
+    --log error \
+    "$ARTIFACTS/libmsquic.${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}.dylib"=/usr/local/lib/libmsquic.${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}.dylib
 fi

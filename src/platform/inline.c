@@ -66,6 +66,12 @@ CxPlatListIsEmpty(
     _In_ const CXPLAT_LIST_ENTRY* ListHead
     );
 
+_Must_inspect_result_
+BOOLEAN
+CxPlatListIsEmptyNoFence(
+    _In_ const CXPLAT_LIST_ENTRY* ListHead
+    );
+
 void
 CxPlatListInsertHead(
     _Inout_ CXPLAT_LIST_ENTRY* ListHead,
@@ -152,6 +158,11 @@ InterlockedCompareExchange64(
     _Inout_ _Interlocked_operand_ int64_t volatile *Destination,
     _In_ int64_t ExChange,
     _In_ int64_t Comperand
+    );
+
+void*
+InterlockedFetchAndClearPointer(
+    _Inout_ _Interlocked_operand_ void* volatile *Target
     );
 
 short

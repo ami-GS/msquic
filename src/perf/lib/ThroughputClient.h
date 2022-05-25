@@ -114,6 +114,7 @@ private:
         Registration,
         MsQuicAlpn(PERF_ALPN),
         MsQuicSettings()
+            .SetConnFlowControlWindow(PERF_DEFAULT_CONN_FLOW_CONTROL)
             .SetIdleTimeoutMs(TPUT_DEFAULT_IDLE_TIMEOUT),
         MsQuicCredentialConfig(
             QUIC_CREDENTIAL_FLAG_CLIENT |
@@ -134,6 +135,8 @@ private:
     uint64_t UploadLength {0};
     uint64_t DownloadLength {0};
     uint32_t IoSize {0};
+    uint32_t CibirIdLength {0};
+    uint8_t CibirId[7]; // {offset, values}
 
     TcpEngine Engine;
     CXPLAT_LOCK TcpLock;

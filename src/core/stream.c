@@ -37,6 +37,12 @@ QuicStreamInitialize(
         Status = QUIC_STATUS_OUT_OF_MEMORY;
         goto Exit;
     }
+
+    QuicTraceEvent(
+        StreamAlloc,
+        "[strm][%p] Allocated, Conn=%p",
+        Stream,
+        Connection);
     CxPlatZeroMemory(Stream, sizeof(QUIC_STREAM));
 
 #if DEBUG
@@ -174,6 +180,10 @@ QuicStreamFree(
     CxPlatDispatchLockUninitialize(&Stream->ApiSendRequestLock);
     CxPlatRefUninitialize(&Stream->RefCount);
 
+    if (Stream->ReceiveCompleteOperation) {
+        QuicOperationFree(Worker, Stream->ReceiveCompleteOperation);
+    }
+
     if (Stream->RecvBuffer.PreallocatedBuffer) {
         CxPlatPoolFree(
             &Worker->DefaultReceiveBufferPool,
@@ -267,8 +277,7 @@ QuicStreamStart(
         // Send flags were queued up before starting so we need to queue the
         // stream data to be sent out now.
         //
-        QuicSendQueueFlushForStream(
-            &Stream->Connection->Send, Stream, FALSE, FALSE);
+        QuicSendQueueFlushForStream(&Stream->Connection->Send, Stream, FALSE);
     }
 
     Stream->Flags.SendOpen = !!(Flags & QUIC_STREAM_START_FLAG_IMMEDIATE);
@@ -459,6 +468,8 @@ QuicStreamIndicateShutdownComplete(
         Event.SHUTDOWN_COMPLETE.ConnectionShutdown =
             Stream->Connection->State.ClosedLocally ||
             Stream->Connection->State.ClosedRemotely;
+        Event.SHUTDOWN_COMPLETE.AppCloseInProgress =
+            Stream->Flags.HandleClosed;
         QuicTraceLogStreamVerbose(
             IndicateStreamShutdownComplete,
             Stream,
@@ -480,8 +491,8 @@ QuicStreamShutdown(
 {
     CXPLAT_DBG_ASSERT(Flags != 0 && Flags != QUIC_STREAM_SHUTDOWN_SILENT);
     CXPLAT_DBG_ASSERT(
-        Flags == QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL ||
-        !(Flags & QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL));
+        !(Flags & QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL) ||
+        !(Flags & (QUIC_STREAM_SHUTDOWN_FLAG_ABORT | QUIC_STREAM_SHUTDOWN_FLAG_IMMEDIATE)));
     CXPLAT_DBG_ASSERT(
         !(Flags & QUIC_STREAM_SHUTDOWN_FLAG_IMMEDIATE) ||
         Flags == (QUIC_STREAM_SHUTDOWN_FLAG_IMMEDIATE |

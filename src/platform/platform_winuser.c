@@ -14,6 +14,7 @@ Environment:
 --*/
 
 #include "platform_internal.h"
+#include <timeapi.h>
 #ifdef QUIC_CLOG
 #include "platform_winuser.c.clog.h"
 #endif
@@ -24,6 +25,9 @@ CX_PLATFORM CxPlatform = { NULL };
 CXPLAT_PROCESSOR_INFO* CxPlatProcessorInfo;
 uint64_t* CxPlatNumaMasks;
 uint32_t* CxPlatProcessorGroupOffsets;
+#ifdef TIMERR_NOERROR
+TIMECAPS CxPlatTimerCapabilities;
+#endif // TIMERR_NOERROR
 QUIC_TRACE_RUNDOWN_CALLBACK* QuicTraceRundownCallback;
 
 _IRQL_requires_max_(PASSIVE_LEVEL)
@@ -259,15 +263,23 @@ Next:
 
 Error:
 
-    CXPLAT_FREE(Buffer, QUIC_POOL_PLATFORM_TMP_ALLOC);
+    if (Buffer) {
+        CXPLAT_FREE(Buffer, QUIC_POOL_PLATFORM_TMP_ALLOC);
+    }
 
     if (!Result) {
-        CXPLAT_FREE(CxPlatNumaMasks, QUIC_POOL_PLATFORM_PROC);
-        CxPlatNumaMasks = NULL;
-        CXPLAT_FREE(CxPlatProcessorGroupOffsets, QUIC_POOL_PLATFORM_PROC);
-        CxPlatProcessorGroupOffsets = NULL;
-        CXPLAT_FREE(CxPlatProcessorInfo, QUIC_POOL_PLATFORM_PROC);
-        CxPlatProcessorInfo = NULL;
+        if (CxPlatNumaMasks) {
+            CXPLAT_FREE(CxPlatNumaMasks, QUIC_POOL_PLATFORM_PROC);
+            CxPlatNumaMasks = NULL;
+        }
+        if (CxPlatProcessorGroupOffsets) {
+            CXPLAT_FREE(CxPlatProcessorGroupOffsets, QUIC_POOL_PLATFORM_PROC);
+            CxPlatProcessorGroupOffsets = NULL;
+        }
+        if (CxPlatProcessorInfo) {
+            CXPLAT_FREE(CxPlatProcessorInfo, QUIC_POOL_PLATFORM_PROC);
+            CxPlatProcessorInfo = NULL;
+        }
     }
 
     return Result;
@@ -280,6 +292,7 @@ CxPlatInitialize(
     )
 {
     QUIC_STATUS Status;
+    BOOLEAN CryptoInitialized = FALSE;
     MEMORYSTATUSEX memInfo;
     memInfo.dwLength = sizeof(MEMORYSTATUSEX);
 
@@ -309,21 +322,64 @@ CxPlatInitialize(
         goto Error;
     }
 
+    CxPlatTotalMemory = memInfo.ullTotalPageFile;
+
+#ifdef TIMERR_NOERROR
+    MMRESULT mmResult;
+    if ((mmResult = timeGetDevCaps(&CxPlatTimerCapabilities, sizeof(TIMECAPS))) != TIMERR_NOERROR) {
+        QuicTraceEvent(
+            LibraryErrorStatus,
+            "[ lib] ERROR, %u, %s.",
+            mmResult,
+            "timeGetDevCaps failed");
+        Status = HRESULT_FROM_WIN32(mmResult);
+        goto Error;
+    }
+
+#ifdef QUIC_HIGH_RES_TIMERS
+    if ((mmResult = timeBeginPeriod(CxPlatTimerCapabilities.wPeriodMin)) != TIMERR_NOERROR) {
+        QuicTraceEvent(
+            LibraryErrorStatus,
+            "[ lib] ERROR, %u, %s.",
+            mmResult,
+            "timeBeginPeriod failed");
+        Status = HRESULT_FROM_WIN32(mmResult);
+        goto Error;
+    }
+#endif // QUIC_HIGH_RES_TIMERS
+#endif // TIMERR_NOERROR
+
     Status = CxPlatCryptInitialize();
     if (QUIC_FAILED(Status)) {
         goto Error;
     }
+    CryptoInitialized = TRUE;
 
-    CxPlatTotalMemory = memInfo.ullTotalPageFile;
+    if (!CxPlatWorkersInit()) {
+        Status = QUIC_STATUS_OUT_OF_MEMORY;
+        goto Error;
+    }
 
+#ifdef TIMERR_NOERROR
+    QuicTraceLogInfo(
+        WindowsUserInitialized2,
+        "[ dll] Initialized (AvailMem = %llu bytes, TimerResolution = [%u, %u])",
+        CxPlatTotalMemory,
+        CxPlatTimerCapabilities.wPeriodMin,
+        CxPlatTimerCapabilities.wPeriodMax);
+#else // TIMERR_NOERROR
     QuicTraceLogInfo(
         WindowsUserInitialized,
         "[ dll] Initialized (AvailMem = %llu bytes)",
         CxPlatTotalMemory);
+#endif // TIMERR_NOERROR
 
 Error:
 
     if (QUIC_FAILED(Status)) {
+        if (CryptoInitialized) {
+            CxPlatCryptUninitialize();
+        }
         if (CxPlatform.Heap) {
             HeapDestroy(CxPlatform.Heap);
             CxPlatform.Heap = NULL;
@@ -339,8 +395,14 @@ CxPlatUninitialize(
     void
     )
 {
+    CxPlatWorkersUninit();
     CxPlatCryptUninitialize();
     CXPLAT_DBG_ASSERT(CxPlatform.Heap);
+#ifdef TIMERR_NOERROR
+#ifdef QUIC_HIGH_RES_TIMERS
+    timeEndPeriod(CxPlatTimerCapabilities.wPeriodMin);
+#endif
+#endif // TIMERR_NOERROR
     CXPLAT_FREE(CxPlatNumaMasks, QUIC_POOL_PLATFORM_PROC);
     CxPlatNumaMasks = NULL;
     CXPLAT_FREE(CxPlatProcessorGroupOffsets, QUIC_POOL_PLATFORM_PROC);
@@ -450,7 +512,7 @@ CxPlatAlloc(
 
 void
 CxPlatFree(
-    __drv_freesMem(Mem) _Frees_ptr_opt_ void* Mem,
+    __drv_freesMem(Mem) _Frees_ptr_ void* Mem,
     _In_ uint32_t Tag
     )
 {

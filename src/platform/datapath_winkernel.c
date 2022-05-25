@@ -129,9 +129,9 @@ typedef struct CXPLAT_DATAPATH_INTERNAL_RECV_CONTEXT {
     ULONG ReferenceCount;
 
     //
-    // Contains the 4 tuple.
+    // Contains the network route.
     //
-    CXPLAT_TUPLE Tuple;
+    CXPLAT_ROUTE Route;
 
     int32_t DataIndicationSize;
 
@@ -824,6 +824,7 @@ CxPlatDataPathInitialize(
     _In_ uint32_t ClientRecvContextLength,
     _In_opt_ const CXPLAT_UDP_DATAPATH_CALLBACKS* UdpCallbacks,
     _In_opt_ const CXPLAT_TCP_DATAPATH_CALLBACKS* TcpCallbacks,
+    _In_opt_ CXPLAT_DATAPATH_CONFIG* Config,
     _Out_ CXPLAT_DATAPATH* *NewDataPath
     )
 {
@@ -840,6 +841,8 @@ CxPlatDataPathInitialize(
     ULONG NoTdi = WSK_TDI_BEHAVIOR_BYPASS_TDI;
 
     UNREFERENCED_PARAMETER(TcpCallbacks);
+    UNREFERENCED_PARAMETER(Config);
+
     if (NewDataPath == NULL) {
         Status = QUIC_STATUS_INVALID_PARAMETER;
         Datapath = NULL;
@@ -2347,8 +2350,8 @@ CxPlatDataPathSocketReceive(
 
                 RecvContext->Binding = Binding;
                 RecvContext->ReferenceCount = 0;
-                RecvContext->Tuple.LocalAddress = LocalAddr;
-                RecvContext->Tuple.RemoteAddress = RemoteAddr;
+                RecvContext->Route.LocalAddress = LocalAddr;
+                RecvContext->Route.RemoteAddress = RemoteAddr;
                 Datagram = (CXPLAT_RECV_DATA*)(RecvContext + 1);
             }
 
@@ -2372,7 +2375,7 @@ CxPlatDataPathSocketReceive(
             }
 
             Datagram->BufferLength = MessageLength;
-            Datagram->Tuple = &RecvContext->Tuple;
+            Datagram->Route = &RecvContext->Route;
 
             //
             // Add the datagram to the end of the current chain.
@@ -2542,9 +2545,11 @@ CXPLAT_SEND_DATA*
 CxPlatSendDataAlloc(
     _In_ CXPLAT_SOCKET* Binding,
     _In_ CXPLAT_ECN_TYPE ECN,
-    _In_ UINT16 MaxPacketSize
+    _In_ UINT16 MaxPacketSize,
+    _Inout_ CXPLAT_ROUTE* Route
     )
 {
+    UNREFERENCED_PARAMETER(Route);
     CXPLAT_DBG_ASSERT(Binding != NULL);
 
     CXPLAT_DATAPATH_PROC_CONTEXT* ProcContext =
@@ -2653,6 +2658,7 @@ CxPlatSendDataFinalizeSendBuffer(
 
     if (SendData->SegmentSize == 0) {
         SendData->TailBuf->Link.Buffer.Length = SendData->ClientBuffer.Length;
+        SendData->TotalSize += SendData->ClientBuffer.Length;
         SendData->ClientBuffer.Length = 0;
         return;
     }
@@ -2957,8 +2963,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 QUIC_STATUS
 CxPlatSocketSend(
     _In_ CXPLAT_SOCKET* Binding,
-    _In_ const QUIC_ADDR* LocalAddress,
-    _In_ const QUIC_ADDR* RemoteAddress,
+    _In_ const CXPLAT_ROUTE* Route,
     _In_ CXPLAT_SEND_DATA* SendData,
     _In_ uint16_t IdealProcessor
     )
@@ -2968,8 +2973,7 @@ CxPlatSocketSend(
 
     UNREFERENCED_PARAMETER(IdealProcessor);
     CXPLAT_DBG_ASSERT(
-        Binding != NULL && LocalAddress != NULL &&
-        RemoteAddress != NULL && SendData != NULL);
+        Binding != NULL && Route != NULL && SendData != NULL);
 
     //
     // Initialize IRP and MDLs for sending.
@@ -2985,14 +2989,14 @@ CxPlatSocketSend(
         SendData->TotalSize,
         SendData->WskBufferCount,
         SendData->SegmentSize,
-        CASTED_CLOG_BYTEARRAY(sizeof(*RemoteAddress), RemoteAddress),
-        CASTED_CLOG_BYTEARRAY(sizeof(*LocalAddress), LocalAddress));
+        CASTED_CLOG_BYTEARRAY(sizeof(Route->RemoteAddress), &Route->RemoteAddress),
+        CASTED_CLOG_BYTEARRAY(sizeof(Route->LocalAddress), &Route->LocalAddress));
 
     //
     // Map V4 address to dual-stack socket format.
     //
     SOCKADDR_INET MappedAddress = { 0 };
-    CxPlatConvertToMappedV6(RemoteAddress, &MappedAddress);
+    CxPlatConvertToMappedV6(&Route->RemoteAddress, &MappedAddress);
 
     //
     // Build up message header to indicate local address to send from.
@@ -3004,7 +3008,7 @@ CxPlatSocketSend(
     // TODO - Use SendData->ECN if not CXPLAT_ECN_NON_ECT
 
     if (!Binding->Connected) {
-        if (LocalAddress->si_family == QUIC_ADDRESS_FAMILY_INET) {
+        if (Route->LocalAddress.si_family == QUIC_ADDRESS_FAMILY_INET) {
             CMsgLen += WSA_CMSG_SPACE(sizeof(IN_PKTINFO));
 
             CMsg->cmsg_level = IPPROTO_IP;
@@ -3012,8 +3016,8 @@ CxPlatSocketSend(
             CMsg->cmsg_len = WSA_CMSG_LEN(sizeof(IN_PKTINFO));
 
             PIN_PKTINFO PktInfo = (PIN_PKTINFO)WSA_CMSG_DATA(CMsg);
-            PktInfo->ipi_ifindex = LocalAddress->Ipv6.sin6_scope_id;
-            PktInfo->ipi_addr = LocalAddress->Ipv4.sin_addr;
+            PktInfo->ipi_ifindex = Route->LocalAddress.Ipv6.sin6_scope_id;
+            PktInfo->ipi_addr = Route->LocalAddress.Ipv4.sin_addr;
 
         } else {
             CMsgLen += WSA_CMSG_SPACE(sizeof(IN6_PKTINFO));
@@ -3023,8 +3027,8 @@ CxPlatSocketSend(
             CMsg->cmsg_len = WSA_CMSG_LEN(sizeof(IN6_PKTINFO));
 
             PIN6_PKTINFO PktInfo6 = (PIN6_PKTINFO)WSA_CMSG_DATA(CMsg);
-            PktInfo6->ipi6_ifindex = LocalAddress->Ipv6.sin6_scope_id;
-            PktInfo6->ipi6_addr = LocalAddress->Ipv6.sin6_addr;
+            PktInfo6->ipi6_ifindex = Route->LocalAddress.Ipv6.sin6_scope_id;
+            PktInfo6->ipi6_addr = Route->LocalAddress.Ipv6.sin6_addr;
         }
     }
 

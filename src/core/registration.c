@@ -36,6 +36,13 @@ MsQuicRegistrationOpen(
     QUIC_STATUS Status;
     QUIC_REGISTRATION* Registration = NULL;
     size_t AppNameLength = 0;
+    const CXPLAT_UDP_DATAPATH_CALLBACKS DatapathCallbacks = {
+        QuicBindingReceive,
+        QuicBindingUnreachable,
+    };
+    const BOOLEAN ExternalRegistration =
+        Config == NULL || Config->ExecutionProfile != QUIC_EXECUTION_PROFILE_TYPE_INTERNAL;
+
     if (Config != NULL && Config->AppName != NULL) {
         AppNameLength = strlen(Config->AppName);
     }
@@ -49,6 +56,39 @@ MsQuicRegistrationOpen(
     if (NewRegistration == NULL || AppNameLength >= UINT8_MAX) {
         Status = QUIC_STATUS_INVALID_PARAMETER;
         goto Error;
+    }
+
+    CXPLAT_DBG_ASSERT(ExternalRegistration || MsQuicLib.Datapath != NULL);
+
+    if (ExternalRegistration) {
+        CxPlatLockAcquire(&MsQuicLib.Lock);
+        if (MsQuicLib.Datapath == NULL) {
+            CXPLAT_DATAPATH_CONFIG DataPathConfig = {
+                MsQuicLib.DataPathProcList,
+                MsQuicLib.DataPathProcListLength
+            };
+            Status =
+                CxPlatDataPathInitialize(
+                    sizeof(CXPLAT_RECV_PACKET),
+                    &DatapathCallbacks,
+                    NULL,                   // TcpCallbacks
+                    &DataPathConfig,
+                    &MsQuicLib.Datapath);
+            if (QUIC_FAILED(Status)) {
+                CxPlatLockRelease(&MsQuicLib.Lock);
+                QuicTraceEvent(
+                    LibraryErrorStatus,
+                    "[ lib] ERROR, %u, %s.",
+                    Status,
+                    "CxPlatDataPathInitialize");
+                goto Error;
+            }
+            QuicTraceEvent(
+                DataPathInitialized,
+                "[data] Initialized, DatapathFeatures=%u",
+                CxPlatDataPathGetSupportedFeatures(MsQuicLib.Datapath));
+        }
+        CxPlatLockRelease(&MsQuicLib.Lock);
     }
 
     Registration =
@@ -70,8 +110,9 @@ MsQuicRegistrationOpen(
     Registration->NoPartitioning = FALSE;
     Registration->SplitPartitioning = FALSE;
     Registration->ExecProfile = Config == NULL ? QUIC_EXECUTION_PROFILE_LOW_LATENCY : Config->ExecutionProfile;
-    Registration->CidPrefixLength = 0;
-    Registration->CidPrefix = NULL;
+    Registration->ShuttingDown = 0;
+    Registration->ShutdownErrorCode = 0;
+    Registration->ShutdownFlags = 0;
     CxPlatLockInitialize(&Registration->ConfigLock);
     CxPlatListInitializeHead(&Registration->Configurations);
     CxPlatDispatchLockInitialize(&Registration->ConnectionLock);
@@ -147,7 +188,7 @@ MsQuicRegistrationOpen(
     }
 #endif
 
-    if (Registration->ExecProfile != QUIC_EXECUTION_PROFILE_TYPE_INTERNAL) {
+    if (ExternalRegistration) {
         CxPlatLockAcquire(&MsQuicLib.Lock);
         CxPlatListInsertTail(&MsQuicLib.Registrations, &Registration->Link);
         CxPlatLockRelease(&MsQuicLib.Lock);
@@ -209,10 +250,6 @@ MsQuicRegistrationClose(
         CxPlatDispatchLockUninitialize(&Registration->ConnectionLock);
         CxPlatLockUninitialize(&Registration->ConfigLock);
 
-        if (Registration->CidPrefix != NULL) {
-            CXPLAT_FREE(Registration->CidPrefix, QUIC_POOL_CIDPREFIX);
-        }
-
         CXPLAT_FREE(Registration, QUIC_POOL_REGISTRATION);
 
         QuicTraceEvent(
@@ -249,6 +286,15 @@ MsQuicRegistrationShutdown(
 
         CxPlatDispatchLockAcquire(&Registration->ConnectionLock);
 
+        if (Registration->ShuttingDown) {
+            CxPlatDispatchLockRelease(&Registration->ConnectionLock);
+            goto Exit;
+        }
+
+        Registration->ShutdownErrorCode = ErrorCode;
+        Registration->ShutdownFlags = Flags;
+        Registration->ShuttingDown = TRUE;
+
         CXPLAT_LIST_ENTRY* Entry = Registration->Connections.Flink;
         while (Entry != &Registration->Connections) {
 
@@ -265,6 +311,7 @@ MsQuicRegistrationShutdown(
                 Oper->API_CALL.Context->Type = QUIC_API_TYPE_CONN_SHUTDOWN;
                 Oper->API_CALL.Context->CONN_SHUTDOWN.Flags = Flags;
                 Oper->API_CALL.Context->CONN_SHUTDOWN.ErrorCode = ErrorCode;
+                Oper->API_CALL.Context->CONN_SHUTDOWN.RegistrationShutdown = TRUE;
                 QuicConnQueueHighestPriorityOper(Connection, Oper);
             }
 
@@ -273,6 +320,8 @@ MsQuicRegistrationShutdown(
 
         CxPlatDispatchLockRelease(&Registration->ConnectionLock);
     }
+
+Exit:
 
     QuicTraceEvent(
         ApiExit,
@@ -385,36 +434,10 @@ QuicRegistrationParamSet(
         const void* Buffer
     )
 {
-    if (Param == QUIC_PARAM_REGISTRATION_CID_PREFIX) {
-        if (BufferLength == 0) {
-            if (Registration->CidPrefix != NULL) {
-                CXPLAT_FREE(Registration->CidPrefix, QUIC_POOL_CIDPREFIX);
-                Registration->CidPrefix = NULL;
-            }
-            Registration->CidPrefixLength = 0;
-            return QUIC_STATUS_SUCCESS;
-        }
-
-        if (BufferLength > MSQUIC_CID_MAX_APP_PREFIX) {
-            return QUIC_STATUS_INVALID_PARAMETER;
-        }
-
-        if (BufferLength > Registration->CidPrefixLength) {
-            uint8_t* NewCidPrefix = CXPLAT_ALLOC_NONPAGED(BufferLength, QUIC_POOL_CIDPREFIX);
-            if (NewCidPrefix == NULL) {
-                return QUIC_STATUS_OUT_OF_MEMORY;
-            }
-            CXPLAT_DBG_ASSERT(Registration->CidPrefix != NULL);
-            CXPLAT_FREE(Registration->CidPrefix, QUIC_POOL_CIDPREFIX);
-            Registration->CidPrefix = NewCidPrefix;
-        }
-
-        Registration->CidPrefixLength = (uint8_t)BufferLength;
-        memcpy(Registration->CidPrefix, Buffer, BufferLength);
-
-        return QUIC_STATUS_SUCCESS;
-    }
-
+    UNREFERENCED_PARAMETER(Registration);
+    UNREFERENCED_PARAMETER(Param);
+    UNREFERENCED_PARAMETER(BufferLength);
+    UNREFERENCED_PARAMETER(Buffer);
     return QUIC_STATUS_INVALID_PARAMETER;
 }
 
@@ -428,27 +451,9 @@ QuicRegistrationParamGet(
         void* Buffer
     )
 {
-    if (Param == QUIC_PARAM_REGISTRATION_CID_PREFIX) {
-
-        if (*BufferLength < Registration->CidPrefixLength) {
-            *BufferLength = Registration->CidPrefixLength;
-            return QUIC_STATUS_BUFFER_TOO_SMALL;
-        }
-
-        if (Registration->CidPrefixLength > 0) {
-            if (Buffer == NULL) {
-                return QUIC_STATUS_INVALID_PARAMETER;
-            }
-
-            *BufferLength = Registration->CidPrefixLength;
-            memcpy(Buffer, Registration->CidPrefix, Registration->CidPrefixLength);
-
-        } else {
-            *BufferLength = 0;
-        }
-
-        return QUIC_STATUS_SUCCESS;
-    }
-
+    UNREFERENCED_PARAMETER(Registration);
+    UNREFERENCED_PARAMETER(Param);
+    UNREFERENCED_PARAMETER(BufferLength);
+    UNREFERENCED_PARAMETER(Buffer);
     return QUIC_STATUS_INVALID_PARAMETER;
 }

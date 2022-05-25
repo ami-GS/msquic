@@ -1,7 +1,7 @@
 <#
 
 .SYNOPSIS
-This script provides helpers for running executing the MsQuic tests.
+This script runs the MsQuic tests.
 
 .PARAMETER Config
     Specifies the build configuration to test.
@@ -63,6 +63,9 @@ This script provides helpers for running executing the MsQuic tests.
 
 .Parameter ErrorsAsWarnings
     Treats all errors as warnings.
+
+.Parameter DuoNic
+    Uses DuoNic instead of loopback (DuoNic must already be installed via 'prepare-machine.ps1 -InstallDuoNic').
 
 .EXAMPLE
     test.ps1
@@ -139,6 +142,9 @@ param (
     [switch]$EnableAppVerifier = $false,
 
     [Parameter(Mandatory = $false)]
+    [switch]$EnableTcpipVerifier = $false,
+
+    [Parameter(Mandatory = $false)]
     [switch]$CodeCoverage = $false,
 
     [Parameter(Mandatory = $false)]
@@ -151,7 +157,10 @@ param (
     [switch]$SkipUnitTests = $false,
 
     [Parameter(Mandatory = $false)]
-    [switch]$ErrorsAsWarnings = $false
+    [switch]$ErrorsAsWarnings = $false,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$DuoNic = $false
 )
 
 Set-StrictMode -Version 'Latest'
@@ -172,7 +181,7 @@ if ($Kernel -and !$IsWindows) {
     Write-Error "-Kernel switch only supported on Windows";
 }
 
-#Validate the code coverage switch.
+# Validate the code coverage switch.
 if ($CodeCoverage) {
     if (!$IsWindows) {
         Write-Error "-CodeCoverage switch only supported on Windows";
@@ -214,7 +223,7 @@ if ("" -ne $ExtraArtifactDir -and $Kernel) {
     Write-Error "Kernel not supported with extra artifact dir"
 }
 
-# Path to the msquictest exectuable.
+# Path to the msquictest executable.
 $MsQuicTest = $null
 $MsQuicCoreTest = $null
 $MsQuicPlatTest = $null
@@ -253,6 +262,9 @@ if (!(Test-Path $PfxFile)) {
 # Build up all the arguments to pass to the Powershell script.
 $TestArguments =  "-IsolationMode $IsolationMode -PfxPath $PfxFile"
 
+if ($DuoNic) {
+    $TestArguments += " -DuoNic"
+}
 if ($Kernel) {
     $TestArguments += " -Kernel $KernelPath"
 }
@@ -289,6 +301,9 @@ if ($NoProgress) {
 if ($EnableAppVerifier) {
     $TestArguments += " -EnableAppVerifier"
 }
+if ($EnableTcpipVerifier) {
+    $TestArguments += " -EnableTcpipVerifier"
+}
 if ($CodeCoverage) {
     $TestArguments += " -CodeCoverage"
 }
@@ -297,6 +312,10 @@ if ($AZP) {
 }
 if ($ErrorsAsWarnings) {
     $TestArguments += " -ErrorsAsWarnings"
+}
+
+if (![string]::IsNullOrWhiteSpace($ExtraArtifactDir)) {
+    $TestArguments += " -ExtraArtifactDir $ExtraArtifactDir"
 }
 
 # Run the script.

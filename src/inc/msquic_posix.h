@@ -140,6 +140,7 @@ inline ENUMTYPE &operator ^= (ENUMTYPE &a, ENUMTYPE b) throw() { return (ENUMTYP
 
 #define QUIC_STATUS_CERT_EXPIRED            QUIC_STATUS_CERT_ERROR(1)       // 0xBEBC401
 #define QUIC_STATUS_CERT_UNTRUSTED_ROOT     QUIC_STATUS_CERT_ERROR(2)       // 0xBEBC402
+#define QUIC_STATUS_CERT_NO_CERT            QUIC_STATUS_CERT_ERROR(3)       // 0xBEBC403
 
 typedef unsigned char BOOLEAN;
 typedef struct in_addr IN_ADDR;
@@ -147,12 +148,9 @@ typedef struct in6_addr IN6_ADDR;
 typedef struct addrinfo ADDRINFO;
 typedef sa_family_t QUIC_ADDRESS_FAMILY;
 
-//
-// Defines match windows values.
-//
-#define QUIC_ADDRESS_FAMILY_UNSPEC 0
-#define QUIC_ADDRESS_FAMILY_INET 2
-#define QUIC_ADDRESS_FAMILY_INET6 23
+#define QUIC_ADDRESS_FAMILY_UNSPEC AF_UNSPEC
+#define QUIC_ADDRESS_FAMILY_INET AF_INET
+#define QUIC_ADDRESS_FAMILY_INET6 AF_INET6
 
 typedef union QUIC_ADDR {
     struct sockaddr Ip;

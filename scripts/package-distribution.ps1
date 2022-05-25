@@ -19,6 +19,8 @@ $ArtifactsBinDir = Join-Path $BaseArtifactsDir "bin"
 # All direct subfolders are OS's
 $Platforms = Get-ChildItem -Path $ArtifactsBinDir
 
+$Version = "2.1.0"
+
 $WindowsBuilds = @()
 $AllBuilds = @()
 
@@ -26,6 +28,9 @@ foreach ($Platform in $Platforms) {
     $PlatBuilds = Get-ChildItem -Path $Platform.FullName
     foreach ($PlatBuild in $PlatBuilds) {
         if (!(Test-Path $PlatBuild.FullName -PathType Container)) {
+            continue;
+        }
+        if ($PlatBuild.Name -eq "_manifest") {
             continue;
         }
         $AllBuilds += $PlatBuild
@@ -68,7 +73,7 @@ foreach ($Build in $AllBuilds) {
 
     $Headers = @(Join-Path $HeaderDir "msquic.h")
 
-    if ($Platform -eq "windows" -or $Platform -eq "uwp") {
+    if ($Platform -eq "windows" -or $Platform -eq "uwp" -or $Platform -eq "gamecore_console") {
         $Headers += Join-Path $HeaderDir  "msquic_winuser.h"
     } else {
         $Headers += Join-Path $HeaderDir  "msquic_posix.h"
@@ -78,24 +83,35 @@ foreach ($Build in $AllBuilds) {
     # Find Binaries
 
     $Binaries = @()
+    $DebugFolders = @()
+    $TestBinary = ""
 
-    if ($Platform -eq "windows" -or $Platform -eq "uwp") {
+    if ($Platform -eq "windows" -or $Platform -eq "uwp" -or $Platform -eq "gamecore_console") {
         $Binaries += Join-Path $ArtifactsDir "msquic.dll"
         $Binaries += Join-Path $ArtifactsDir "msquic.pdb"
+        if ($Platform -eq "windows") {
+            $TestBinary = Join-Path $ArtifactsDir "msquictest.exe"
+        }
     } elseif ($Platform -eq "linux") {
-        $Binaries += Join-Path $ArtifactsDir "libmsquic.so"
-        $LttngBin = Join-Path $ArtifactsDir "libmsquic.lttng.so"
+        $Binaries += Join-Path $ArtifactsDir "libmsquic.so.$Version"
+        $LttngBin = Join-Path $ArtifactsDir "libmsquic.lttng.so.$Version"
         if (Test-Path $LttngBin) {
             $Binaries += $LttngBin
         }
+        $TestBinary = Join-Path $ArtifactsDir "msquictest"
     } else {
         # macos
-        $Binaries += Join-Path $ArtifactsDir "libmsquic.dylib"
+        $Binaries += Join-Path $ArtifactsDir "libmsquic.$Version.dylib"
+        $DebugFolder = Join-Path $ArtifactsDir "libmsquic.$Version.dylib.dSYM"
+        if (Test-Path $DebugFolder) {
+            $DebugFolders += $DebugFolder
+        }
+        $TestBinary = Join-Path $ArtifactsDir "msquictest"
     }
 
     $Libraries = @()
 
-    if ($Platform -eq "windows" -or $Platform -eq "uwp") {
+    if ($Platform -eq "windows" -or $Platform -eq "uwp" -or $Platform -eq "gamecore_console") {
         $Libraries += Join-Path $ArtifactsDir "msquic.lib"
     }
 
@@ -122,6 +138,10 @@ foreach ($Build in $AllBuilds) {
         Copy-Item -LiteralPath $Binary -Destination $CopyToFolder -Force
     }
 
+    foreach ($DebugFolder in $DebugFolders) {
+        Copy-Item -Path $DebugFolder -Destination $BinFolder -Recurse
+    }
+
     foreach ($Library in $Libraries) {
         $FileName = Split-Path -Path $Library -Leaf
         $CopyToFolder = (Join-Path $LibFolder $FileName)
@@ -134,12 +154,21 @@ foreach ($Build in $AllBuilds) {
         # Only need license, no 3rd party code
         Copy-Item -Path (Join-Path $RootDir "THIRD-PARTY-NOTICES") -Destination $TempDir
     }
+
     # Package zip archive
     Compress-Archive -Path "$TempDir/*" -DestinationPath (Join-Path $DistDir "msquic_$($Platform)_$BuildBaseName.zip") -Force
 
     # For now, package only x64 Release binaries
     if ($Platform -eq "linux" -and $BuildBaseName -like "*x64_Release*") {
         Write-Output "Packaging $Build"
-        scripts/make-packages.sh  --output $DistDir
+        $OldLoc = Get-Location
+        Set-Location $RootDir
+        & $RootDir/scripts/make-packages.sh --output $DistDir
+        Set-Location $OldLoc
+    }
+
+    # Package msquictest in separate test package.
+    if ($TestBinary -ne "") {
+        Compress-Archive -Path $TestBinary -DestinationPath (Join-Path $DistDir "msquic_$($Platform)_$($BuildBaseName)_test.zip") -Force
     }
 }
