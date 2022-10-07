@@ -1379,6 +1379,11 @@ QuicSettingsVersionSettingsToInternal(
     if (SettingsSize < sizeof(QUIC_VERSION_SETTINGS)) {
         return QUIC_STATUS_INVALID_PARAMETER;
     }
+    if ((Settings->AcceptableVersionsLength > 0 && Settings->AcceptableVersions == NULL) ||
+        (Settings->OfferedVersionsLength > 0 && Settings->OfferedVersions == NULL) ||
+        (Settings->FullyDeployedVersionsLength > 0 && Settings->FullyDeployedVersions == NULL)) {
+        return QUIC_STATUS_INVALID_PARAMETER;
+    }
 
     InternalSettings->IsSetFlags = 0;
 
