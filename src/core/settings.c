@@ -1353,6 +1353,8 @@ QuicSettingsGlobalSettingsToInternal(
     }
 
     InternalSettings->IsSetFlags = 0;
+    //fprintf(stderr, "RetryMemoryLimit:%ld, %ld\n", offsetof(QUIC_SETTINGS_INTERNAL, RetryMemoryLimit), offsetof(QUIC_GLOBAL_SETTINGS, RetryMemoryLimit));
+    fprintf(stderr, "Settings %p, InternalSettings %p\n", Settings, InternalSettings);
     InternalSettings->IsSet.RetryMemoryLimit = Settings->IsSet.RetryMemoryLimit;
     InternalSettings->RetryMemoryLimit = Settings->RetryMemoryLimit;
     //SETTING_COPY_TO_INTERNAL(RetryMemoryLimit, Settings, InternalSettings);
