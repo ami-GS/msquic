@@ -1346,12 +1346,16 @@ QuicSettingsGlobalSettingsToInternal(
     _Out_ QUIC_SETTINGS_INTERNAL* InternalSettings
     )
 {
+    //int a = offsetof(QUIC_GLOBAL_SETTINGS, LoadBalancingMode) + sizeof(((SettingsType*)0)->Field);
+    //SettingsSize >= offsetof(QUIC_GLOBAL_SETTINGS, LoadBalancingMode) + sizeof(((SettingsType*)0)->Field);
     if (!SETTING_HAS_FIELD(QUIC_GLOBAL_SETTINGS, SettingsSize, LoadBalancingMode)) {
         return QUIC_STATUS_INVALID_PARAMETER;
     }
 
     InternalSettings->IsSetFlags = 0;
-    SETTING_COPY_TO_INTERNAL(RetryMemoryLimit, Settings, InternalSettings);
+    InternalSettings->IsSet.RetryMemoryLimit = Settings->IsSet.RetryMemoryLimit;
+    InternalSettings->RetryMemoryLimit = Settings->RetryMemoryLimit;
+    //SETTING_COPY_TO_INTERNAL(RetryMemoryLimit, Settings, InternalSettings);
     SETTING_COPY_TO_INTERNAL(LoadBalancingMode, Settings, InternalSettings);
 
     //
