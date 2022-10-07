@@ -21,6 +21,9 @@ Abstract:
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
 	const MsQuicApi* MsQuic = new(std::nothrow) MsQuicApi();
+	uint8_t* dd = (uint8_t*)malloc(size);
+	memcpy(dd, data, size);
+
 	std::cerr << "size:" << size << "\t[";
 	for (size_t i = 0; i < size; i++) {
 		std::cerr << std::bitset<8>{data[i]} << " ";
@@ -36,11 +39,13 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 			nullptr,
 			Param,
 			size,
-			&data);
+			//&data);
+			&dd);
 		std::cerr << out << ",";
 	}
 	std::cerr << std::endl;
-
+	
+	free(dd);
 	delete MsQuic;
 	return 0;
 }
