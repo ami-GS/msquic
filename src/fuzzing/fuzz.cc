@@ -23,9 +23,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	const MsQuicApi* MsQuic = new(std::nothrow) MsQuicApi();
 	std::cout << "[" << std::hex;
 	for (size_t i = 0; i < size; i++) {
-		std::cout << data[i];
+		std::cout << data[i] << " ";
 	}
-	std::cout << std::endl;
+	std::cout << std::dec << "]:" << size << std::endl;
 	for (uint32_t Param = QUIC_PARAM_GLOBAL_RETRY_MEMORY_PERCENT;
 		Param <= QUIC_PARAM_GLOBAL_TLS_PROVIDER;
 		Param++) {
