@@ -21,7 +21,7 @@ Abstract:
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
 	const MsQuicApi* MsQuic = new(std::nothrow) MsQuicApi();
-	std::cout << "[";
+	std::cout << "[" << std::hex;
 	for (size_t i = 0; i < size; i++) {
 		std::cout << data[i];
 	}
