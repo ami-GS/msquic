@@ -36,13 +36,13 @@ T& GetRandomFromVector(std::vector<T> &vec) {
 }
 
 class FuzzingData {
-    uint8_t* data;
+    const uint8_t* data;
     size_t size;
     size_t ptr;
     bool cyclic;
 public:
     FuzzingData() : data(nullptr), size(0), ptr(0), cyclic(true) {}
-    FuzzingData(uint8_t* data, size_t size) : data(data), size(size), ptr(0), cyclic(true) {}
+    FuzzingData(const uint8_t* data, size_t size) : data(data), size(size), ptr(0), cyclic(true) {}
     bool TryGetByte(uint8_t* Val) {
         if (ptr < size) {
             *Val = data[ptr++];
@@ -604,7 +604,7 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
 
         int ApiSwitch = -1;
 #ifdef FUZZING
-        Gb.FuzzData.GetRandom(SpinQuicAPICallCount, &ApiSwitch);
+        Gb.FuzzData.TryGetRandom(SpinQuicAPICallCount, &ApiSwitch);
 #else
         ApiSwitch = GetRandom(SpinQuicAPICallCount);
 #endif
