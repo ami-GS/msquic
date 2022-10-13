@@ -35,6 +35,51 @@ T& GetRandomFromVector(std::vector<T> &vec) {
     return vec.at(GetRandom(vec.size()));
 }
 
+class FuzzingData {
+    uint8_t* data;
+    size_t size;
+    size_t ptr;
+    bool cyclic;
+public:
+    FuzzingData() : data(nullptr), size(0), ptr(0), cyclic(true) {}
+    FuzzingData(uint8_t* data, size_t size) : data(data), size(size), ptr(0), cyclic(true) {}
+    bool TryGetByte(uint8_t* Val) {
+        if (ptr < size) {
+            *Val = data[ptr++];
+            if (cyclic)
+                ptr %= size;
+            return true;
+        }
+        return false;
+    }
+    bool TryGetBool(bool* Flag) {
+        if (ptr < size) {
+            *Flag = (bool)(data[ptr++] & 0b1);
+            if (cyclic)
+                ptr %= size;
+            return true;
+        }
+        return false;
+    }
+    template<typename T>
+    bool TryGetRandom(T UpperBound, T* Val) {
+        int type_size = sizeof(T);
+        if (ptr < size + type_size) {
+            memcpy(Val, data, type_size);
+            ptr += type_size;
+            Val %= UpperBound;
+            if (cyclic)
+                ptr %= size;
+            return true;
+        }
+        return false;
+    }
+    // TODO: copy constructor
+    FuzzingData Copy() {
+        return FuzzingData(data, size);
+    }
+};
+
 template<typename T>
 class LockableVector : public std::vector<T>, public std::mutex {
 public:
@@ -93,8 +138,7 @@ static QUIC_API_TABLE MsQuic;
 CXPLAT_LOCK RunThreadLock;
 
 const uint32_t MaxBufferSizes[] = { 0, 1, 2, 32, 50, 256, 500, 1000, 1024, 1400, 5000, 10000, 64000, 10000000 };
-//static const size_t BufferCount = ARRAYSIZE(MaxBufferSizes);
-static const size_t BufferCount = 1;
+static const size_t BufferCount = ARRAYSIZE(MaxBufferSizes);
 
 struct SpinQuicGlobals {
     uint64_t StartTimeMs;
@@ -105,6 +149,7 @@ struct SpinQuicGlobals {
     QUIC_BUFFER* Alpns {nullptr};
     uint32_t AlpnCount {0};
     QUIC_BUFFER Buffers[BufferCount];
+    FuzzingData FuzzData;
     SpinQuicGlobals() { CxPlatZeroMemory(Buffers, sizeof(Buffers)); }
     ~SpinQuicGlobals() {
         while (ClientConfigurations.size() > 0) {
@@ -127,11 +172,9 @@ struct SpinQuicGlobals {
 #endif
             MsQuicClose(MsQuic);
         }
-#ifndef FUZZING
         for (size_t j = 0; j < BufferCount; ++j) {
             free(Buffers[j].Buffer);
         }
-#endif
     }
 };
 
@@ -559,7 +602,15 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
             continue; \
         }
 
-        switch (GetRandom(SpinQuicAPICallCount)) {
+        int ApiSwitch = -1;
+#ifdef FUZZING
+        Gb.FuzzData.GetRandom(SpinQuicAPICallCount, &ApiSwitch);
+#else
+        ApiSwitch = GetRandom(SpinQuicAPICallCount);
+#endif
+
+        //switch (GetRandom(SpinQuicAPICallCount)) {
+        switch (ApiSwitch) {
         case SpinQuicAPICallConnectionOpen:
             if (!IsServer) {
                 auto ctx = new SpinQuicConnection();
@@ -943,14 +994,13 @@ CXPLAT_THREAD_CALLBACK(RunThread, Context)
         Gbs Gb;
 
         for (size_t j = 0; j < BufferCount; ++j) {
-#ifdef FUZZING
-            Gb.Buffers[j].Buffer = ((QUIC_BUFFER*)Context)->Buffer;
-            Gb.Buffers[j].Length = ((QUIC_BUFFER*)Context)->Length;
-#else
             Gb.Buffers[j].Length = MaxBufferSizes[j]; // TODO - Randomize?
             Gb.Buffers[j].Buffer = (uint8_t*)malloc(Gb.Buffers[j].Length);
             ASSERT_ON_NOT(Gb.Buffers[j].Buffer);
-#endif
+        }
+
+        if (Context) {
+            Gb.FuzzData = ((FuzzingData*)Context)->Copy();
         }
 
 #ifdef QUIC_BUILD_STATIC
@@ -1079,6 +1129,7 @@ CXPLAT_THREAD_CALLBACK(RunThread, Context)
 int start(void* Context) {
     CxPlatSystemLoad();
     CxPlatInitialize();
+    CxPlatLockInitialize(&RunThreadLock);
 
     //
     // Initial MsQuicOpen2 and initialization.
@@ -1131,6 +1182,7 @@ int start(void* Context) {
         }
     }
 
+    CxPlatLockUninitialize(&RunThreadLock);
     return 0;
 }
 
@@ -1143,7 +1195,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 
     Settings.RunServer = true;
     Settings.RunClient = true;
-    Settings.RunTimeMs = 10000; // OSS-Fuzz timeout is 25 sec
+    Settings.RunTimeMs = 200; // OSS-Fuzz timeout is 25 sec
     Settings.ServerName = "127.0.0.1";
     Settings.Ports = std::vector<uint16_t>({9998, 9999});
     Settings.AlpnPrefix = "spin";
@@ -1152,7 +1204,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     Settings.AllocFailDenominator = 0;
     Settings.RepeatCount = 1;
 
-    QUIC_BUFFER Context = {(uint32_t)size, const_cast<uint8_t*>(data)};
+    FuzzingData Context = FuzzingData(data, size);
     start(&Context);
     return 0;
 }
@@ -1177,12 +1229,6 @@ main(int argc, char **argv)
         printf("Must specify one of the following as the first argument: 'server' 'client' 'both'\n\n");
         PrintHelpText();
     }
-
-    CxPlatSystemLoad();
-    CxPlatInitialize();
-    CxPlatLockInitialize(&RunThreadLock);
-
-    uint32_t RepeatCount = 1;
 
     Settings.RunTimeMs = 60000;
     Settings.ServerName = "127.0.0.1";
