@@ -67,7 +67,7 @@ public:
         if (ptr < size + type_size) {
             memcpy(Val, data, type_size);
             ptr += type_size;
-            Val %= UpperBound;
+            *Val %= UpperBound;
             if (cyclic)
                 ptr %= size;
             return true;
