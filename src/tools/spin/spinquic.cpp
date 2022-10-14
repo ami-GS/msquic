@@ -84,7 +84,7 @@ public:
     template<typename T>
     bool TryGetRandom(T UpperBound, T* Val, uint16_t ThreadId = 0) {
         //fprintf(stderr, "1:%d, 2:%p, 3:%d, data:%p, size:%d, EachSize:%d, Ptrs[]:%d\n", UpperBound, Val, ThreadId, data, size, EachSize, Ptrs[ThreadId]);
-        fprintf(stderr, "[%u] Size:%d, ThreadId:%d, NumThread:%d, Ptrs.size():%d\n", CxPlatCurThreadID(), size, ThreadId, NumThread, Ptrs.size());
+        // fprintf(stderr, "[%u] Size:%d, ThreadId:%d, NumThread:%d, Ptrs.size():%d\n", CxPlatCurThreadID(), size, ThreadId, NumThread, Ptrs.size());
         int type_size = sizeof(T);
         if (Ptrs[ThreadId] + type_size <= EachSize) {
             memcpy(Val, &data[Ptrs[ThreadId]], type_size);
@@ -1188,7 +1188,9 @@ int start(void* Context) {
         const uint32_t Count = (uint32_t)(rand() % (ARRAYSIZE(Threads) - 1) + 1);
         if (Context) {
             fprintf(stderr, "Data init!\n");
-            ((FuzzingData*)Context)->Initialize(Count * (Settings.RunServer + Settings.RunClient));
+            if (!((FuzzingData*)Context)->Initialize(Count * (Settings.RunServer + Settings.RunClient))) {
+                return 0;
+            }
         }
 
         for (uint32_t j = 0; j < Count; ++j) {
