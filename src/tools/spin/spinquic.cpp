@@ -83,7 +83,7 @@ public:
     }
     template<typename T>
     bool TryGetRandom(T UpperBound, T* Val, uint16_t ThreadId = 0) {
-        fprintf(stderr, "1:%d, 2:%p, 3:%d, data:%p, size:%d, EachSize:%d, Ptrs[]:%d\n", UpperBound, Val, ThreadId, data, size, EachSize, Ptrs[ThreadId]);
+        //fprintf(stderr, "1:%d, 2:%p, 3:%d, data:%p, size:%d, EachSize:%d, Ptrs[]:%d\n", UpperBound, Val, ThreadId, data, size, EachSize, Ptrs[ThreadId]);
         int type_size = sizeof(T);
         if (Ptrs[ThreadId] + type_size < EachSize) {
             memcpy(Val, &data[Ptrs[ThreadId]], type_size);
