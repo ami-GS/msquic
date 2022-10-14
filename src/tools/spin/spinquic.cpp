@@ -96,10 +96,6 @@ public:
         }
         return false;
     }
-    // TODO: copy constructor
-    FuzzingData Copy() {
-        return FuzzingData(data, size);
-    }
 };
 
 template<typename T>
@@ -1231,7 +1227,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     Settings.AllocFailDenominator = 0;
     Settings.RepeatCount = 1;
 
-    FuzzingData Context = FuzzingData(data, size);
+    FuzzingData Context(data, size);
     start(&Context);
     return 0;
 }
