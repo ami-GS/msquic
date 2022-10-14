@@ -1182,6 +1182,7 @@ int start(void* Context) {
     MsQuicClose(TempMsQuic);
 
     Settings.RunTimeMs = Settings.RunTimeMs / Settings.RepeatCount;
+    fprintf(stderr, "RepeatCount:%d, ", Settings.RepeatCount);
     for (uint32_t i = 0; i < Settings.RepeatCount; i++) {
 
         CXPLAT_THREAD_CONFIG Config = {
@@ -1190,6 +1191,7 @@ int start(void* Context) {
         CXPLAT_THREAD Threads[4];
         const uint32_t Count = (uint32_t)(rand() % (ARRAYSIZE(Threads) - 1) + 1);
         if (Context) {
+            fprintf(stderr, "Data init!\n");
             ((FuzzingData*)Context)->Initialize(Count * (Settings.RunServer + Settings.RunClient));
         }
 
