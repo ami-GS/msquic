@@ -604,7 +604,7 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
 
         int ApiSwitch = -1;
 #ifdef FUZZING
-        Gb.FuzzData.TryGetRandom(SpinQuicAPICallCount, &ApiSwitch);
+        Gb.FuzzData.TryGetRandom<int>(SpinQuicAPICallCount, &ApiSwitch);
 #else
         ApiSwitch = GetRandom(SpinQuicAPICallCount);
 #endif
