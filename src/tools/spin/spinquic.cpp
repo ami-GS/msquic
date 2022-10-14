@@ -1193,6 +1193,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     // TODD: timeout within 25 sec
     // cast "data" to any structures which are passed to any API with "size".
 
+    if (size < sizeof(int) || size % 2 == 1) {
+        return 0;
+    }
+
     Settings.RunServer = true;
     Settings.RunClient = true;
     Settings.RunTimeMs = 200; // OSS-Fuzz timeout is 25 sec
