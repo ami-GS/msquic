@@ -38,38 +38,58 @@ T& GetRandomFromVector(std::vector<T> &vec) {
 class FuzzingData {
     const uint8_t* data;
     size_t size;
-    size_t ptr;
-    bool cyclic;
+    // TODO: support multiple?
+    size_t EachSize;
+    std::vector<size_t> Ptrs;
+    bool Cyclic;
+    uint16_t NumThread;
 public:
-    FuzzingData() : data(nullptr), size(0), ptr(0), cyclic(true) {}
-    FuzzingData(const uint8_t* data, size_t size) : data(data), size(size), ptr(0), cyclic(true) {}
-    bool TryGetByte(uint8_t* Val) {
-        if (ptr < size) {
-            *Val = data[ptr++];
-            if (cyclic)
-                ptr %= size;
+    short int IncrementalThreadId;
+
+    FuzzingData() : data(nullptr), size(0), Ptrs({}), Cyclic(true), NumThread(65535) {}
+    FuzzingData(const uint8_t* data, size_t size) : data(data), size(size), Ptrs({}), Cyclic(true), NumThread(65535) {}
+    bool Initialize(uint16_t NumSpinThread) {
+        // TODO: support non divisible size
+        if (size % NumSpinThread != 0) {
+            return false;
+        }
+
+        IncrementalThreadId = 0;
+        NumThread = NumSpinThread;
+        EachSize = size / NumThread;
+        Ptrs.resize(NumThread);
+        std::fill(Ptrs.begin(), Ptrs.end(), 0);
+        return true;
+    }
+    bool TryGetByte(uint8_t* Val, uint16_t ThreadId = 0) {
+        if (Ptrs[ThreadId] < EachSize) {
+            *Val = data[Ptrs[ThreadId]++ + EachSize * ThreadId];
+            if (Cyclic && EachSize == Ptrs[ThreadId]) {
+                Ptrs[ThreadId] = 0;
+            }
             return true;
         }
         return false;
     }
-    bool TryGetBool(bool* Flag) {
-        if (ptr < size) {
-            *Flag = (bool)(data[ptr++] & 0b1);
-            if (cyclic)
-                ptr %= size;
+    bool TryGetBool(bool* Flag, uint16_t ThreadId = 0) {
+        if (Ptrs[ThreadId] < EachSize) {
+            *Flag = (bool)(data[Ptrs[ThreadId]++ + EachSize * ThreadId] & 0b1);
+            if (Cyclic && EachSize == Ptrs[ThreadId]) {
+                Ptrs[ThreadId] = 0;
+            }
             return true;
         }
         return false;
     }
     template<typename T>
-    bool TryGetRandom(T UpperBound, T* Val) {
+    bool TryGetRandom(T UpperBound, T* Val, uint16_t ThreadId = 0) {
         int type_size = sizeof(T);
-        if (ptr < size + type_size) {
+        if (Ptrs[ThreadId] + type_size < EachSize) {
             memcpy(Val, data, type_size);
-            ptr += type_size;
             *Val %= UpperBound;
-            if (cyclic)
-                ptr %= size;
+            Ptrs[ThreadId] += type_size;
+            if (Cyclic && EachSize == Ptrs[ThreadId])
+                Ptrs[ThreadId] = 0;
             return true;
         }
         return false;
@@ -149,7 +169,7 @@ struct SpinQuicGlobals {
     QUIC_BUFFER* Alpns {nullptr};
     uint32_t AlpnCount {0};
     QUIC_BUFFER Buffers[BufferCount];
-    FuzzingData FuzzData;
+    FuzzingData* FuzzData;
     SpinQuicGlobals() { CxPlatZeroMemory(Buffers, sizeof(Buffers)); }
     ~SpinQuicGlobals() {
         while (ClientConfigurations.size() > 0) {
@@ -568,6 +588,10 @@ void SpinQuicGetRandomParam(HQUIC Handle)
 
 void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Listeners = nullptr)
 {
+#ifdef FUZZING
+    uint16_t ThreadID = InterlockedIncrement16(&Gb.FuzzData->IncrementalThreadId) - 1;
+#endif
+
     bool IsServer = Listeners != nullptr;
 
     uint64_t OpCount = 0;
@@ -604,12 +628,10 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
 
         int ApiSwitch = -1;
 #ifdef FUZZING
-        Gb.FuzzData.TryGetRandom<int>(SpinQuicAPICallCount, &ApiSwitch);
+        Gb.FuzzData->TryGetRandom<int>(SpinQuicAPICallCount, &ApiSwitch, ThreadID);
 #else
         ApiSwitch = GetRandom(SpinQuicAPICallCount);
 #endif
-
-        //switch (GetRandom(SpinQuicAPICallCount)) {
         switch (ApiSwitch) {
         case SpinQuicAPICallConnectionOpen:
             if (!IsServer) {
@@ -985,9 +1007,6 @@ void PrintHelpText(void)
 
 CXPLAT_THREAD_CALLBACK(RunThread, Context)
 {
-#ifndef FUZZING
-    UNREFERENCED_PARAMETER(Context);
-#endif
     SpinQuicWatchdog Watchdog((uint32_t)Settings.RunTimeMs + WATCHDOG_WIGGLE_ROOM);
 
     do {
@@ -999,10 +1018,7 @@ CXPLAT_THREAD_CALLBACK(RunThread, Context)
             ASSERT_ON_NOT(Gb.Buffers[j].Buffer);
         }
 
-        if (Context) {
-            Gb.FuzzData = ((FuzzingData*)Context)->Copy();
-        }
-
+        Gb.FuzzData = (FuzzingData*)Context;
 #ifdef QUIC_BUILD_STATIC
         CxPlatLockAcquire(&RunThreadLock);
         QUIC_STATUS Status = MsQuicOpen2(&Gb.MsQuic);
@@ -1171,6 +1187,9 @@ int start(void* Context) {
         };
         CXPLAT_THREAD Threads[4];
         const uint32_t Count = (uint32_t)(rand() % (ARRAYSIZE(Threads) - 1) + 1);
+        if (Context) {
+            ((FuzzingData*)Context)->Initialize(Count * (Settings.RunServer + Settings.RunClient));
+        }
 
         for (uint32_t j = 0; j < Count; ++j) {
             ASSERT_ON_FAILURE(CxPlatThreadCreate(&Config, &Threads[j]));
