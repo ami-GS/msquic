@@ -25,16 +25,6 @@
     } while (0)
 #define ASSERT_ON_NOT(x) CXPLAT_FRE_ASSERT(x)
 
-template<typename T>
-T GetRandom(T UpperBound) {
-    return (T)(rand() % (int)UpperBound);
-}
-
-template<typename T>
-T& GetRandomFromVector(std::vector<T> &vec) {
-    return vec.at(GetRandom(vec.size()));
-}
-
 class FuzzingData {
     const uint8_t* data;
     size_t size;
@@ -86,7 +76,7 @@ public:
         int type_size = sizeof(T);
         if (Ptrs[ThreadId] + type_size <= EachSize) {
             memcpy(Val, &data[Ptrs[ThreadId]], type_size);
-            *Val %= UpperBound;
+            *(uint64_t*)Val %= (uint64_t)UpperBound;
             Ptrs[ThreadId] += type_size;
             if (Cyclic && EachSize == Ptrs[ThreadId])
                 Ptrs[ThreadId] = 0;
@@ -96,13 +86,31 @@ public:
     }
 };
 
+static FuzzingData* FuzzData = nullptr;
+
+template<typename T>
+T GetRandom(T UpperBound, uint16_t ThreadID = std::numeric_limits<uint16_t>::max()) {
+    if (!FuzzData || ThreadID == std::numeric_limits<uint16_t>::max()) {
+        return (T)(rand() % (int)UpperBound);
+    }
+    T out;
+    (void)FuzzData->TryGetRandom(UpperBound, &out, ThreadID);
+    return out;
+}
+
+template<typename T>
+T& GetRandomFromVector(std::vector<T> &vec) {
+    return vec.at(GetRandom(vec.size()));
+}
+
 template<typename T>
 class LockableVector : public std::vector<T>, public std::mutex {
+    uint16_t ThreadID = std::numeric_limits<uint16_t>::max();
 public:
     T TryGetRandom(bool Erase = false) {
         std::lock_guard<std::mutex> Lock(*this);
         if (this->size() > 0) {
-            auto idx = GetRandom(this->size());
+            auto idx = GetRandom(this->size(), ThreadID);
             auto obj = this->at(idx);
             if (Erase) {
                 this->erase(this->begin() + idx);
@@ -110,6 +118,9 @@ public:
             return obj;
         }
         return nullptr;
+    }
+    void SetThreadID(uint16_t threadID) {
+        ThreadID = threadID;
     }
 };
 
@@ -155,7 +166,6 @@ CXPLAT_LOCK RunThreadLock;
 
 const uint32_t MaxBufferSizes[] = { 0, 1, 2, 32, 50, 256, 500, 1000, 1024, 1400, 5000, 10000, 64000, 10000000 };
 static const size_t BufferCount = ARRAYSIZE(MaxBufferSizes);
-static FuzzingData* FuzzData = nullptr;
 
 struct SpinQuicGlobals {
     uint64_t StartTimeMs;
@@ -166,7 +176,6 @@ struct SpinQuicGlobals {
     QUIC_BUFFER* Alpns {nullptr};
     uint32_t AlpnCount {0};
     QUIC_BUFFER Buffers[BufferCount];
-    FuzzingData* FuzzData;
     SpinQuicGlobals() { CxPlatZeroMemory(Buffers, sizeof(Buffers)); }
     ~SpinQuicGlobals() {
         while (ClientConfigurations.size() > 0) {
@@ -585,10 +594,12 @@ void SpinQuicGetRandomParam(HQUIC Handle)
 
 void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Listeners = nullptr)
 {
-#ifdef FUZZING
-    //uint16_t ThreadID = InterlockedIncrement16(&Gb.FuzzData->IncrementalThreadId) - 1;
-    uint16_t ThreadID = InterlockedIncrement16(&FuzzData->IncrementalThreadId) - 1;
-#endif
+
+    uint16_t ThreadID = std::numeric_limits<uint16_t>::max();
+    if (FuzzData) {
+        ThreadID = InterlockedIncrement16(&FuzzData->IncrementalThreadId) - 1;
+        Connections.SetThreadID(ThreadID);
+    }
 
     bool IsServer = Listeners != nullptr;
 
@@ -624,13 +635,7 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
             continue; \
         }
 
-        int ApiSwitch = -1;
-#ifdef FUZZING
-        FuzzData->TryGetRandom<int>(SpinQuicAPICallCount, &ApiSwitch, ThreadID);
-#else
-        ApiSwitch = GetRandom(SpinQuicAPICallCount);
-#endif
-        switch (ApiSwitch) {
+        switch (GetRandom(SpinQuicAPICallCount, ThreadID)) {
         case SpinQuicAPICallConnectionOpen:
             if (!IsServer) {
                 auto ctx = new SpinQuicConnection();
@@ -1017,7 +1022,6 @@ CXPLAT_THREAD_CALLBACK(RunThread, Context)
             ASSERT_ON_NOT(Gb.Buffers[j].Buffer);
         }
 
-        //Gb.FuzzData = (FuzzingData*)Context;
 #ifdef QUIC_BUILD_STATIC
         CxPlatLockAcquire(&RunThreadLock);
         QUIC_STATUS Status = MsQuicOpen2(&Gb.MsQuic);
