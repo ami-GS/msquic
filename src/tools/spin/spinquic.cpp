@@ -1228,9 +1228,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     Settings.AllocFailDenominator = 0;
     Settings.RepeatCount = 1;
 
-    FuzzData = &FuzzingData(data, size);
-    //start(&Context);
+    FuzzData = new FuzzingData(data, size);
     start(nullptr);
+    delete FuzzData;
     return 0;
 }
 #else
