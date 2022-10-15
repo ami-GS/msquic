@@ -40,7 +40,7 @@ public:
     FuzzingData(const uint8_t* data, size_t size) : data(data), size(size), Ptrs({}), Cyclic(true), NumThread(65535) {}
     bool Initialize(uint16_t NumSpinThread) {
         // TODO: support non divisible size
-        if (size % NumSpinThread != 0) {
+        if (size % NumSpinThread != 0 || size < NumSpinThread * 8) {
             return false;
         }
 
