@@ -28,7 +28,7 @@
 class FuzzingData {
     const uint8_t* data;
     size_t size;
-    // TODO: support multiple?
+    // TODO: multiple EachSize for non divisible size
     size_t EachSize;
     std::vector<size_t> Ptrs;
     bool Cyclic;
@@ -52,21 +52,19 @@ public:
         return true;
     }
     bool TryGetByte(uint8_t* Val, uint16_t ThreadId = 0) {
-        if (Ptrs[ThreadId] < EachSize) {
-            *Val = data[Ptrs[ThreadId]++ + EachSize * ThreadId];
-            if (Cyclic && EachSize == Ptrs[ThreadId]) {
-                Ptrs[ThreadId] = 0;
+        if (EachSize < Ptrs[ThreadId] + 1) {
+            if (Cyclic) {
+                return false;
             }
-            return true;
+            Ptrs[ThreadId] = 0;
         }
-        return false;
+        *Val = data[Ptrs[ThreadId]++ + EachSize * ThreadId];
+        return true;
     }
     bool TryGetBool(bool* Flag, uint16_t ThreadId = 0) {
-        if (Ptrs[ThreadId] < EachSize) {
-            *Flag = (bool)(data[Ptrs[ThreadId]++ + EachSize * ThreadId] & 0b1);
-            if (Cyclic && EachSize == Ptrs[ThreadId]) {
-                Ptrs[ThreadId] = 0;
-            }
+        uint8_t Val = 0;
+        if (TryGetByte(&Val, ThreadId)) {
+            *Flag = (bool)(Val & 0b1);
             return true;
         }
         return false;
@@ -74,15 +72,17 @@ public:
     template<typename T>
     bool TryGetRandom(T UpperBound, T* Val, uint16_t ThreadId = 0) {
         int type_size = sizeof(T);
-        if (Ptrs[ThreadId] + type_size <= EachSize) {
-            memcpy(Val, &data[Ptrs[ThreadId]], type_size);
-            *(uint64_t*)Val %= (uint64_t)UpperBound;
-            Ptrs[ThreadId] += type_size;
-            if (Cyclic && EachSize == Ptrs[ThreadId])
-                Ptrs[ThreadId] = 0;
-            return true;
+        // TODO: efficient cyclic access
+        if (EachSize < Ptrs[ThreadId] + type_size) {
+            if (Cyclic) {
+                return false;
+            }
+            Ptrs[ThreadId] = 0;
         }
-        return false;
+        memcpy(Val, &data[Ptrs[ThreadId]], type_size);
+        *(uint64_t*)Val %= (uint64_t)UpperBound;
+        Ptrs[ThreadId] += type_size;
+        return true;
     }
 };
 
