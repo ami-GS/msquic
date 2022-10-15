@@ -155,6 +155,7 @@ CXPLAT_LOCK RunThreadLock;
 
 const uint32_t MaxBufferSizes[] = { 0, 1, 2, 32, 50, 256, 500, 1000, 1024, 1400, 5000, 10000, 64000, 10000000 };
 static const size_t BufferCount = ARRAYSIZE(MaxBufferSizes);
+static FuzzingData* FuzzData = nullptr;
 
 struct SpinQuicGlobals {
     uint64_t StartTimeMs;
@@ -585,7 +586,8 @@ void SpinQuicGetRandomParam(HQUIC Handle)
 void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Listeners = nullptr)
 {
 #ifdef FUZZING
-    uint16_t ThreadID = InterlockedIncrement16(&Gb.FuzzData->IncrementalThreadId) - 1;
+    //uint16_t ThreadID = InterlockedIncrement16(&Gb.FuzzData->IncrementalThreadId) - 1;
+    uint16_t ThreadID = InterlockedIncrement16(&FuzzData->IncrementalThreadId) - 1;
 #endif
 
     bool IsServer = Listeners != nullptr;
@@ -624,7 +626,7 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
 
         int ApiSwitch = -1;
 #ifdef FUZZING
-        Gb.FuzzData->TryGetRandom<int>(SpinQuicAPICallCount, &ApiSwitch, ThreadID);
+        FuzzData->TryGetRandom<int>(SpinQuicAPICallCount, &ApiSwitch, ThreadID);
 #else
         ApiSwitch = GetRandom(SpinQuicAPICallCount);
 #endif
@@ -1003,6 +1005,7 @@ void PrintHelpText(void)
 
 CXPLAT_THREAD_CALLBACK(RunThread, Context)
 {
+    UNREFERENCED_PARAMETER(Context);
     SpinQuicWatchdog Watchdog((uint32_t)Settings.RunTimeMs + WATCHDOG_WIGGLE_ROOM);
 
     do {
@@ -1014,7 +1017,7 @@ CXPLAT_THREAD_CALLBACK(RunThread, Context)
             ASSERT_ON_NOT(Gb.Buffers[j].Buffer);
         }
 
-        Gb.FuzzData = (FuzzingData*)Context;
+        //Gb.FuzzData = (FuzzingData*)Context;
 #ifdef QUIC_BUILD_STATIC
         CxPlatLockAcquire(&RunThreadLock);
         QUIC_STATUS Status = MsQuicOpen2(&Gb.MsQuic);
@@ -1183,8 +1186,8 @@ int start(void* Context) {
         };
         CXPLAT_THREAD Threads[4];
         const uint32_t Count = (uint32_t)(rand() % (ARRAYSIZE(Threads) - 1) + 1);
-        if (Context) {
-            if (!((FuzzingData*)Context)->Initialize((uint16_t)(Count * (Settings.RunServer + Settings.RunClient)))) {
+        if (FuzzData) {
+            if (!(FuzzData->Initialize((uint16_t)(Count * (Settings.RunServer + Settings.RunClient))))) {
                 return 0;
             }
         }
@@ -1225,8 +1228,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     Settings.AllocFailDenominator = 0;
     Settings.RepeatCount = 1;
 
-    FuzzingData Context(data, size);
-    start(&Context);
+    FuzzData = &FuzzingData(data, size);
+    //start(&Context);
+    start(nullptr);
     return 0;
 }
 #else
