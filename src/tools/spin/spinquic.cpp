@@ -111,7 +111,6 @@ public:
         std::lock_guard<std::mutex> Lock(*this);
         if (this->size() > 0) {
             auto idx = GetRandom(this->size(), ThreadID);
-            fprintf(stderr, "[%d] size:%ld, idx:%ld\n", ThreadID, this->size(), idx);
             auto obj = this->at(idx);
             if (Erase) {
                 this->erase(this->begin() + idx);
