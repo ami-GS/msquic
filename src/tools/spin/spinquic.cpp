@@ -327,6 +327,7 @@ static struct {
 
 QUIC_STATUS QUIC_API SpinQuicHandleStreamEvent(HQUIC Stream, void *Context, QUIC_STREAM_EVENT *Event)
 {
+    fprintf(stderr, "SpinQuicHandleStreamEvent, Context addr:%p\n", Context);
     uint16_t ThreadID = *((uint16_t*)Context);
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
@@ -390,6 +391,7 @@ QUIC_STATUS QUIC_API SpinQuicHandleConnectionEvent(HQUIC Connection, void *Conte
         SpinQuicConnection::Get(Connection)->OnShutdownComplete();
         break;
     case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
+        fprintf(stderr, "SpinQuicHandleConnectionEvent, Context addr:%p\n", Context);
         MsQuic.SetCallbackHandler(Event->PEER_STREAM_STARTED.Stream, (void *)SpinQuicHandleStreamEvent, ThreadID);
         SpinQuicConnection::Get(Connection)->AddStream(Event->PEER_STREAM_STARTED.Stream);
         break;
@@ -417,6 +419,7 @@ QUIC_STATUS QUIC_API SpinQuicServerHandleListenerEvent(HQUIC /* Listener */, voi
         if (!GetRandom(20)) {
             return QUIC_STATUS_CONNECTION_REFUSED;
         }
+        fprintf(stderr, "SpinQuicServerHandleListenerEvent, Context addr:%p\n", ThreadID);
         MsQuic.SetCallbackHandler(Event->NEW_CONNECTION.Connection, (void*)SpinQuicHandleConnectionEvent, ThreadID);
         QUIC_STATUS Status =
             MsQuic.ConnectionSetConfiguration(
@@ -696,6 +699,7 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
             auto Connection = Connections.TryGetRandom();
             BAIL_ON_NULL_CONNECTION(Connection);
             HQUIC Stream;
+            fprintf(stderr, "[%d] Spin, Context addr:%p\n", Listeners ? 1 : 0, &ThreadID);
             QUIC_STATUS Status = MsQuic.StreamOpen(Connection, (QUIC_STREAM_OPEN_FLAGS)GetRandom(2, ThreadID), SpinQuicHandleStreamEvent, &ThreadID, &Stream);
             if (QUIC_SUCCEEDED(Status)) {
                 SpinQuicGetRandomParam(Stream, ThreadID);
