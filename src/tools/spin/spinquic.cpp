@@ -112,11 +112,13 @@ T GetRandom(T UpperBound, uint16_t ThreadID = UINT16_MAX) {
     (void)FuzzData->TryGetRandom(UpperBound, &out, ThreadID);
     return out;
 }
+#define GetRandom(UpperBound) GetRandom(UpperBound, ThreadID)
 
 template<typename T>
-T& GetRandomFromVector(std::vector<T> &vec, uint16_t ThreadID = UINT16_MAX) {
-    return vec.at(GetRandom(vec.size(), ThreadID));
+T& GetRandomFromVector(std::vector<T> &vec, uint16_t ThreadID) {
+    return vec.at(GetRandom(vec.size()));
 }
+#define GetRandomFromVector(Vec) GetRandomFromVector(Vec, ThreadID)
 
 template<typename T>
 class LockableVector : public std::vector<T>, public std::mutex {
@@ -125,7 +127,7 @@ public:
     T TryGetRandom(bool Erase = false) {
         std::lock_guard<std::mutex> Lock(*this);
         if (this->size() > 0) {
-            auto idx = GetRandom(this->size(), ThreadID);
+            auto idx = GetRandom(this->size());
             auto obj = this->at(idx);
             if (Erase) {
                 this->erase(this->begin() + idx);
@@ -299,7 +301,7 @@ public:
     // Requires Lock to be held
     HQUIC TryGetStream(bool Remove = false) {
         if (Streams.size() != 0) {
-            auto idx = GetRandom(Streams.size(), ThreadID);
+            auto idx = GetRandom(Streams.size());
             HQUIC Stream = Streams[idx];
             if (Remove) {
                 Streams.erase(Streams.begin() + idx);
@@ -325,22 +327,22 @@ static struct {
     uint32_t RepeatCount;
 } Settings;
 
-QUIC_STATUS QUIC_API SpinQuicHandleStreamEvent(HQUIC Stream, void *Context, QUIC_STREAM_EVENT *Event)
+QUIC_STATUS QUIC_API SpinQuicHandleStreamEvent(HQUIC Stream, void * /* Context */, QUIC_STREAM_EVENT *Event)
 {
-    fprintf(stderr, "SpinQuicHandleStreamEvent, Context addr:%p\n", Context);
-    uint16_t ThreadID = *((uint16_t*)Context);
+    // TODO: avoid context overwite
+    uint16_t ThreadID = 0;
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
-        MsQuic.StreamShutdown(Stream, (QUIC_STREAM_SHUTDOWN_FLAGS)GetRandom(16, ThreadID), 0);
+        MsQuic.StreamShutdown(Stream, (QUIC_STREAM_SHUTDOWN_FLAGS)GetRandom(16), 0);
         break;
     case QUIC_STREAM_EVENT_RECEIVE: {
-        int Random = GetRandom(5, ThreadID);
+        int Random = GetRandom(5);
         if (Random == 0) {
             MsQuic.SetContext(Stream, (void*)Event->RECEIVE.TotalBufferLength);
             return QUIC_STATUS_PENDING; // Pend the receive, to be completed later.
         } else if (Random == 1 && Event->RECEIVE.TotalBufferLength > 0) {
-            Event->RECEIVE.TotalBufferLength = GetRandom(Event->RECEIVE.TotalBufferLength + 1, ThreadID); // Partially (or fully) consume the data.
-            if (GetRandom(10, ThreadID) == 0) {
+            Event->RECEIVE.TotalBufferLength = GetRandom(Event->RECEIVE.TotalBufferLength + 1); // Partially (or fully) consume the data.
+            if (GetRandom(10) == 0) {
                 return QUIC_STATUS_CONTINUE; // Don't pause receive callbacks.
             }
         }
@@ -355,17 +357,18 @@ QUIC_STATUS QUIC_API SpinQuicHandleStreamEvent(HQUIC Stream, void *Context, QUIC
 
 QUIC_STATUS QUIC_API SpinQuicHandleConnectionEvent(HQUIC Connection, void *Context, QUIC_CONNECTION_EVENT *Event)
 {
-    uint16_t* ThreadID = (uint16_t*)Context;
+    // TODO: avoid context overwite
+    uint16_t ThreadID = 0; // *(uint16_t*)Context;
     switch (Event->Type) {
     case QUIC_CONNECTION_EVENT_CONNECTED: {
-        int Selector = GetRandom(3, *ThreadID);
+        int Selector = GetRandom(3);
         uint16_t DataLength = 0;
         uint8_t* Data = nullptr;
         if (Selector == 1) {
             //
             // Send ticket with some data
             //
-            DataLength = (uint16_t)(GetRandom(999, *ThreadID) + 1);
+            DataLength = (uint16_t)(GetRandom(999) + 1);
         } else if (Selector == 2) {
             //
             // Send ticket with too much data
@@ -382,7 +385,7 @@ QUIC_STATUS QUIC_API SpinQuicHandleConnectionEvent(HQUIC Connection, void *Conte
                 DataLength = 0;
             }
         }
-        QUIC_SEND_RESUMPTION_FLAGS Flags = (GetRandom(2, *ThreadID) == 0) ? QUIC_SEND_RESUMPTION_FLAG_NONE : QUIC_SEND_RESUMPTION_FLAG_FINAL;
+        QUIC_SEND_RESUMPTION_FLAGS Flags = (GetRandom(2) == 0) ? QUIC_SEND_RESUMPTION_FLAG_NONE : QUIC_SEND_RESUMPTION_FLAG_FINAL;
         MsQuic.ConnectionSendResumptionTicket(Connection, Flags, DataLength, Data);
         free(Data);
         break;
@@ -391,8 +394,7 @@ QUIC_STATUS QUIC_API SpinQuicHandleConnectionEvent(HQUIC Connection, void *Conte
         SpinQuicConnection::Get(Connection)->OnShutdownComplete();
         break;
     case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
-        fprintf(stderr, "SpinQuicHandleConnectionEvent, Context addr:%p\n", Context);
-        MsQuic.SetCallbackHandler(Event->PEER_STREAM_STARTED.Stream, (void *)SpinQuicHandleStreamEvent, ThreadID);
+        MsQuic.SetCallbackHandler(Event->PEER_STREAM_STARTED.Stream, (void *)SpinQuicHandleStreamEvent, Context);
         SpinQuicConnection::Get(Connection)->AddStream(Event->PEER_STREAM_STARTED.Stream);
         break;
     default:
@@ -412,15 +414,14 @@ QUIC_STATUS QUIC_API SpinQuicServerHandleListenerEvent(HQUIC /* Listener */, voi
 {
     HQUIC ServerConfiguration = ((ListenerContext*)Context)->ServerConfiguration;
     auto& Connections = *((ListenerContext*)Context)->Connections;
-    uint16_t* ThreadID = &((ListenerContext*)Context)->ThreadID;
+    uint16_t ThreadID = ((ListenerContext*)Context)->ThreadID;
 
     switch (Event->Type) {
     case QUIC_LISTENER_EVENT_NEW_CONNECTION: {
         if (!GetRandom(20)) {
             return QUIC_STATUS_CONNECTION_REFUSED;
         }
-        fprintf(stderr, "SpinQuicServerHandleListenerEvent, Context addr:%p\n", ThreadID);
-        MsQuic.SetCallbackHandler(Event->NEW_CONNECTION.Connection, (void*)SpinQuicHandleConnectionEvent, ThreadID);
+        MsQuic.SetCallbackHandler(Event->NEW_CONNECTION.Connection, (void*)SpinQuicHandleConnectionEvent, &((ListenerContext*)Context)->ThreadID);
         QUIC_STATUS Status =
             MsQuic.ConnectionSetConfiguration(
                 Event->NEW_CONNECTION.Connection,
@@ -428,7 +429,7 @@ QUIC_STATUS QUIC_API SpinQuicServerHandleListenerEvent(HQUIC /* Listener */, voi
         if (QUIC_FAILED(Status)) {
             return Status;
         }
-        auto ctx = new SpinQuicConnection(Event->NEW_CONNECTION.Connection, *ThreadID);
+        auto ctx = new SpinQuicConnection(Event->NEW_CONNECTION.Connection, ThreadID);
         if (ctx == nullptr) {
             return QUIC_STATUS_OUT_OF_MEMORY;
         }
@@ -489,7 +490,7 @@ void SpinQuicSetRandomConnectionParam(HQUIC Connection, uint16_t ThreadID)
     uint8_t RandomBuffer[8];
     SetParamHelper Helper;
 
-    switch (0x05000000 | (GetRandom(24, ThreadID))) {
+    switch (0x05000000 | (GetRandom(24))) {
     case QUIC_PARAM_CONN_QUIC_VERSION:                              // uint32_t
         // QUIC_VERSION is get-only
         break;
@@ -507,7 +508,7 @@ void SpinQuicSetRandomConnectionParam(HQUIC Connection, uint16_t ThreadID)
     case QUIC_PARAM_CONN_STATISTICS_PLAT:                           // QUIC_STATISTICS
         break; // Get Only
     case QUIC_PARAM_CONN_SHARE_UDP_BINDING:                         // uint8_t (BOOLEAN)
-        Helper.SetUint8(QUIC_PARAM_CONN_SHARE_UDP_BINDING, (uint8_t)GetRandom(2, ThreadID));
+        Helper.SetUint8(QUIC_PARAM_CONN_SHARE_UDP_BINDING, (uint8_t)GetRandom(2));
         break;
     case QUIC_PARAM_CONN_LOCAL_BIDI_STREAM_COUNT:                   // uint16_t
         break; // Get Only
@@ -519,21 +520,21 @@ void SpinQuicSetRandomConnectionParam(HQUIC Connection, uint16_t ThreadID)
         Helper.SetPtr(QUIC_PARAM_CONN_CLOSE_REASON_PHRASE, "ABCDEFGHI\x00\x00\x00\x00\x00", 10);
         break;
     case QUIC_PARAM_CONN_STREAM_SCHEDULING_SCHEME:                  // QUIC_STREAM_SCHEDULING_SCHEME
-        Helper.SetUint32(QUIC_PARAM_CONN_STREAM_SCHEDULING_SCHEME, GetRandom(QUIC_STREAM_SCHEDULING_SCHEME_COUNT, ThreadID));
+        Helper.SetUint32(QUIC_PARAM_CONN_STREAM_SCHEDULING_SCHEME, GetRandom(QUIC_STREAM_SCHEDULING_SCHEME_COUNT));
         break;
     case QUIC_PARAM_CONN_DATAGRAM_RECEIVE_ENABLED:                  // uint8_t (BOOLEAN)
-        Helper.SetUint8(QUIC_PARAM_CONN_DATAGRAM_RECEIVE_ENABLED, (uint8_t)GetRandom(2, ThreadID));
+        Helper.SetUint8(QUIC_PARAM_CONN_DATAGRAM_RECEIVE_ENABLED, (uint8_t)GetRandom(2));
         break;
     case QUIC_PARAM_CONN_DATAGRAM_SEND_ENABLED:                     // uint8_t (BOOLEAN)
         break; // Get Only
     case QUIC_PARAM_CONN_DISABLE_1RTT_ENCRYPTION:                   // uint8_t (BOOLEAN)
-        Helper.SetUint8(QUIC_PARAM_CONN_DISABLE_1RTT_ENCRYPTION, (uint8_t)GetRandom(2, ThreadID));
+        Helper.SetUint8(QUIC_PARAM_CONN_DISABLE_1RTT_ENCRYPTION, (uint8_t)GetRandom(2));
         break;
     case QUIC_PARAM_CONN_RESUMPTION_TICKET:                         // uint8_t[]
         // TODO
         break;
     case QUIC_PARAM_CONN_PEER_CERTIFICATE_VALID:                    // uint8_t (BOOLEAN)
-        Helper.SetUint8(QUIC_PARAM_CONN_PEER_CERTIFICATE_VALID, (uint8_t)GetRandom(2, ThreadID));
+        Helper.SetUint8(QUIC_PARAM_CONN_PEER_CERTIFICATE_VALID, (uint8_t)GetRandom(2));
         break;
     case QUIC_PARAM_CONN_LOCAL_INTERFACE:                           // uint32_t
         // TODO
@@ -546,12 +547,12 @@ void SpinQuicSetRandomConnectionParam(HQUIC Connection, uint16_t ThreadID)
     case QUIC_PARAM_CONN_CIBIR_ID:                       // bytes[]
         if (FuzzData) {
             // assume 8 byte buffer for now
-            uint64_t Buffer = GetRandom(UINT64_MAX, ThreadID);
+            uint64_t Buffer = GetRandom(UINT64_MAX);
             memcpy(RandomBuffer, &Buffer, sizeof(RandomBuffer));
         } else {
             CxPlatRandom(sizeof(RandomBuffer), RandomBuffer);
         }
-        Helper.SetPtr(QUIC_PARAM_CONN_CIBIR_ID, RandomBuffer, 1 + (uint8_t)GetRandom(sizeof(RandomBuffer), ThreadID));
+        Helper.SetPtr(QUIC_PARAM_CONN_CIBIR_ID, RandomBuffer, 1 + (uint8_t)GetRandom(sizeof(RandomBuffer)));
         break;
     case QUIC_PARAM_CONN_STATISTICS_V2:                             // QUIC_STATISTICS_V2
         break; // Get Only
@@ -568,7 +569,7 @@ void SpinQuicSetRandomStreamParam(HQUIC Stream, uint16_t ThreadID)
 {
     SetParamHelper Helper;
 
-    switch (0x08000000 | (GetRandom(5, ThreadID))) {
+    switch (0x08000000 | (GetRandom(5))) {
     case QUIC_PARAM_STREAM_ID:                                      // QUIC_UINT62
         break; // Get Only
     case QUIC_PARAM_STREAM_0RTT_LENGTH:                             // QUIC_ADDR
@@ -576,7 +577,7 @@ void SpinQuicSetRandomStreamParam(HQUIC Stream, uint16_t ThreadID)
     case QUIC_PARAM_STREAM_IDEAL_SEND_BUFFER_SIZE:                  // QUIC_ADDR
         break; // Get Only
     case QUIC_PARAM_STREAM_PRIORITY:                                // uint16_t
-        Helper.SetUint16(QUIC_PARAM_STREAM_PRIORITY, (uint16_t)GetRandom(UINT16_MAX, ThreadID));
+        Helper.SetUint16(QUIC_PARAM_STREAM_PRIORITY, (uint16_t)GetRandom(UINT16_MAX));
         break;
     case QUIC_PARAM_STREAM_STATISTICS:
         break; // Get Only
@@ -607,18 +608,18 @@ const uint32_t ParamCounts[] = {
 void SpinQuicGetRandomParam(HQUIC Handle, uint16_t ThreadID)
 {
     for (uint32_t i = 0; i < GET_PARAM_LOOP_COUNT; ++i) {
-        uint32_t Level = (uint32_t)GetRandom(ARRAYSIZE(ParamCounts), ThreadID);
-        uint32_t Param = (uint32_t)GetRandom(((ParamCounts[Level] & 0xFFFFFFF)) + 1, ThreadID);
+        uint32_t Level = (uint32_t)GetRandom(ARRAYSIZE(ParamCounts));
+        uint32_t Param = (uint32_t)GetRandom(((ParamCounts[Level] & 0xFFFFFFF)) + 1);
         uint32_t Combined = ((Level+1) << 28) + Param;
 
         uint8_t OutBuffer[200];
-        uint32_t OutBufferLength = (uint32_t)GetRandom(sizeof(OutBuffer) + 1, ThreadID);
+        uint32_t OutBufferLength = (uint32_t)GetRandom(sizeof(OutBuffer) + 1);
 
         MsQuic.GetParam(
-            (GetRandom(10, ThreadID) == 0) ? nullptr : Handle,
+            (GetRandom(10) == 0) ? nullptr : Handle,
             Combined,
             &OutBufferLength,
-            (GetRandom(10, ThreadID) == 0) ? nullptr : OutBuffer);
+            (GetRandom(10) == 0) ? nullptr : OutBuffer);
     }
 }
 
@@ -629,11 +630,13 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
 
     uint64_t OpCount = 0;
     while (++OpCount != Settings.MaxOperationCount &&
-        (FuzzData && Settings.MaxFuzzIterationCount != FuzzData->GetIterateCount(ThreadID)) &&
+#ifdef FUZZING
+        (Settings.MaxFuzzIterationCount != FuzzData->GetIterateCount(ThreadID)) &&
+#endif
         CxPlatTimeDiff64(Gb.StartTimeMs, CxPlatTimeMs64()) < Settings.RunTimeMs) {
 
         if (Listeners) {
-            auto Value = GetRandom(100, ThreadID);
+            auto Value = GetRandom(100);
             if (Value >= 90) {
                 for (auto &Listener : *Listeners) {
                     MsQuic.ListenerStop(Listener);
@@ -641,9 +644,9 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
             } else if (Value >= 40) {
                 for (auto &Listener : *Listeners) {
                     QUIC_ADDR sockAddr = { 0 };
-                    QuicAddrSetFamily(&sockAddr, GetRandom(2, ThreadID) ? QUIC_ADDRESS_FAMILY_INET : QUIC_ADDRESS_FAMILY_UNSPEC);
-                    QuicAddrSetPort(&sockAddr, GetRandomFromVector(Settings.Ports, ThreadID));
-                    MsQuic.ListenerStart(Listener, &Gb.Alpns[GetRandom(Gb.AlpnCount, ThreadID)], 1, &sockAddr);
+                    QuicAddrSetFamily(&sockAddr, GetRandom(2) ? QUIC_ADDRESS_FAMILY_INET : QUIC_ADDRESS_FAMILY_UNSPEC);
+                    QuicAddrSetPort(&sockAddr, GetRandomFromVector(Settings.Ports));
+                    MsQuic.ListenerStart(Listener, &Gb.Alpns[GetRandom(Gb.AlpnCount)], 1, &sockAddr);
                 }
             } else {
                 for (auto &Listener : *Listeners) {
@@ -660,7 +663,7 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
             continue; \
         }
 
-        switch (GetRandom(SpinQuicAPICallCount, ThreadID)) {
+        switch (GetRandom(SpinQuicAPICallCount)) {
         case SpinQuicAPICallConnectionOpen:
             if (!IsServer) {
                 auto ctx = new SpinQuicConnection(ThreadID);
@@ -679,14 +682,14 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
         case SpinQuicAPICallConnectionStart: {
             auto Connection = Connections.TryGetRandom();
             BAIL_ON_NULL_CONNECTION(Connection);
-            HQUIC Configuration = GetRandomFromVector(Gb.ClientConfigurations, ThreadID);
-            MsQuic.ConnectionStart(Connection, Configuration, QUIC_ADDRESS_FAMILY_INET, Settings.ServerName, GetRandomFromVector(Settings.Ports, ThreadID));
+            HQUIC Configuration = GetRandomFromVector(Gb.ClientConfigurations);
+            MsQuic.ConnectionStart(Connection, Configuration, QUIC_ADDRESS_FAMILY_INET, Settings.ServerName, GetRandomFromVector(Settings.Ports));
             break;
         }
         case SpinQuicAPICallConnectionShutdown: {
             auto Connection = Connections.TryGetRandom();
             BAIL_ON_NULL_CONNECTION(Connection);
-            MsQuic.ConnectionShutdown(Connection, (QUIC_CONNECTION_SHUTDOWN_FLAGS)GetRandom(2, ThreadID), 0);
+            MsQuic.ConnectionShutdown(Connection, (QUIC_CONNECTION_SHUTDOWN_FLAGS)GetRandom(2), 0);
             break;
         }
         case SpinQuicAPICallConnectionClose: {
@@ -699,8 +702,7 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
             auto Connection = Connections.TryGetRandom();
             BAIL_ON_NULL_CONNECTION(Connection);
             HQUIC Stream;
-            fprintf(stderr, "[%d] Spin, Context addr:%p\n", Listeners ? 1 : 0, &ThreadID);
-            QUIC_STATUS Status = MsQuic.StreamOpen(Connection, (QUIC_STREAM_OPEN_FLAGS)GetRandom(2, ThreadID), SpinQuicHandleStreamEvent, &ThreadID, &Stream);
+            QUIC_STATUS Status = MsQuic.StreamOpen(Connection, (QUIC_STREAM_OPEN_FLAGS)GetRandom(2), SpinQuicHandleStreamEvent, &ThreadID, &Stream);
             if (QUIC_SUCCEEDED(Status)) {
                 SpinQuicGetRandomParam(Stream, ThreadID);
                 SpinQuicSetRandomStreamParam(Stream, ThreadID);
@@ -716,7 +718,7 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
                 std::lock_guard<std::mutex> Lock(ctx->Lock);
                 auto Stream = ctx->TryGetStream();
                 if (Stream == nullptr) continue;
-                MsQuic.StreamStart(Stream, (QUIC_STREAM_START_FLAGS)GetRandom(16, ThreadID));
+                MsQuic.StreamStart(Stream, (QUIC_STREAM_START_FLAGS)GetRandom(16));
             }
             break;
         }
@@ -728,8 +730,8 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
                 std::lock_guard<std::mutex> Lock(ctx->Lock);
                 auto Stream = ctx->TryGetStream();
                 if (Stream == nullptr) continue;
-                auto Buffer = &Gb.Buffers[GetRandom(BufferCount, ThreadID)];
-                MsQuic.StreamSend(Stream, Buffer, 1, (QUIC_SEND_FLAGS)GetRandom(16, ThreadID), nullptr);
+                auto Buffer = &Gb.Buffers[GetRandom(BufferCount)];
+                MsQuic.StreamSend(Stream, Buffer, 1, (QUIC_SEND_FLAGS)GetRandom(16), nullptr);
             }
             break;
         }
@@ -741,7 +743,7 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
                 std::lock_guard<std::mutex> Lock(ctx->Lock);
                 auto Stream = ctx->TryGetStream();
                 if (Stream == nullptr) continue;
-                MsQuic.StreamReceiveSetEnabled(Stream, GetRandom(2, ThreadID) == 0);
+                MsQuic.StreamReceiveSetEnabled(Stream, GetRandom(2) == 0);
             }
             break;
         }
@@ -754,8 +756,8 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
                 auto Stream = ctx->TryGetStream();
                 if (Stream == nullptr) continue;
                 auto BytesRemaining = MsQuic.GetContext(Stream);
-                if (BytesRemaining != nullptr && GetRandom(10, ThreadID) == 0) {
-                    auto BytesConsumed = GetRandom((uint64_t)BytesRemaining, ThreadID);
+                if (BytesRemaining != nullptr && GetRandom(10) == 0) {
+                    auto BytesConsumed = GetRandom((uint64_t)BytesRemaining);
                     MsQuic.SetContext(Stream, (void*)((uint64_t)BytesRemaining - BytesConsumed));
                     MsQuic.StreamReceiveComplete(Stream, BytesConsumed);
                 } else {
@@ -773,7 +775,7 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
                 std::lock_guard<std::mutex> Lock(ctx->Lock);
                 auto Stream = ctx->TryGetStream();
                 if (Stream == nullptr) continue;
-                MsQuic.StreamShutdown(Stream, (QUIC_STREAM_SHUTDOWN_FLAGS)GetRandom(16, ThreadID), 0);
+                MsQuic.StreamShutdown(Stream, (QUIC_STREAM_SHUTDOWN_FLAGS)GetRandom(16), 0);
             }
             break;
         }
@@ -849,8 +851,8 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
         case SpinQuicAPICallDatagramSend: {
             auto Connection = Connections.TryGetRandom();
             BAIL_ON_NULL_CONNECTION(Connection);
-            auto Buffer = &Gb.Buffers[GetRandom(BufferCount, ThreadID)];
-            MsQuic.DatagramSend(Connection, Buffer, 1, (QUIC_SEND_FLAGS)GetRandom(8, ThreadID), nullptr);
+            auto Buffer = &Gb.Buffers[GetRandom(BufferCount)];
+            MsQuic.DatagramSend(Connection, Buffer, 1, (QUIC_SEND_FLAGS)GetRandom(8), nullptr);
         }
         default:
             break;
@@ -877,9 +879,9 @@ CXPLAT_THREAD_CALLBACK(ServerSpin, Context)
         //
 
         QUIC_SETTINGS QuicSettings{0};
-        QuicSettings.PeerBidiStreamCount = GetRandom((uint16_t)10, ThreadID);
+        QuicSettings.PeerBidiStreamCount = GetRandom((uint16_t)10);
         QuicSettings.IsSet.PeerBidiStreamCount = TRUE;
-        QuicSettings.PeerUnidiStreamCount = GetRandom((uint16_t)10, ThreadID);
+        QuicSettings.PeerUnidiStreamCount = GetRandom((uint16_t)10);
         QuicSettings.IsSet.PeerUnidiStreamCount = TRUE;
         // TODO - Randomize more of the settings.
 
@@ -919,7 +921,7 @@ CXPLAT_THREAD_CALLBACK(ServerSpin, Context)
                 }
 
                 QUIC_ADDR sockAddr = { 0 };
-                QuicAddrSetFamily(&sockAddr, GetRandom(2, ThreadID) ? QUIC_ADDRESS_FAMILY_INET : QUIC_ADDRESS_FAMILY_UNSPEC);
+                QuicAddrSetFamily(&sockAddr, GetRandom(2) ? QUIC_ADDRESS_FAMILY_INET : QUIC_ADDRESS_FAMILY_UNSPEC);
                 QuicAddrSetPort(&sockAddr, pt);
 
                 if (!QUIC_SUCCEEDED(MsQuic.ListenerStart(Listener, &Gb.Alpns[i], 1, &sockAddr))) {
@@ -1007,6 +1009,7 @@ void QUIC_API DatapathHookGetAddressCallback(_Inout_ QUIC_ADDR* /* Address */)
 {
 }
 
+// TODO
 BOOLEAN QUIC_API DatapathHookReceiveCallback(struct CXPLAT_RECV_DATA* /* Datagram */)
 {
     uint8_t RandomValue;
@@ -1072,14 +1075,14 @@ CXPLAT_THREAD_CALLBACK(RunThread, Context)
         QUIC_SETTINGS QuicSettings{0};
         CXPLAT_THREAD_CONFIG Config = { 0 };
 
-        if (0 == GetRandom(4, ThreadID)) {
+        if (0 == GetRandom(4)) {
             uint16_t RetryMemoryPercent = 0;
             if (!QUIC_SUCCEEDED(MsQuic.SetParam(nullptr, QUIC_PARAM_GLOBAL_RETRY_MEMORY_PERCENT, sizeof(RetryMemoryPercent), &RetryMemoryPercent))) {
                 break;
             }
         }
 
-        if (0 == GetRandom(4, ThreadID)) {
+        if (0 == GetRandom(4)) {
             uint16_t LoadBalancingMode = QUIC_LOAD_BALANCING_SERVER_ID_IP;
             if (!QUIC_SUCCEEDED(MsQuic.SetParam(nullptr, QUIC_PARAM_GLOBAL_LOAD_BALACING_MODE, sizeof(LoadBalancingMode), &LoadBalancingMode))) {
                 break;
@@ -1111,9 +1114,9 @@ CXPLAT_THREAD_CALLBACK(RunThread, Context)
             }
         }
 
-        QuicSettings.PeerBidiStreamCount = GetRandom((uint16_t)10, ThreadID);
+        QuicSettings.PeerBidiStreamCount = GetRandom((uint16_t)10);
         QuicSettings.IsSet.PeerBidiStreamCount = TRUE;
-        QuicSettings.PeerUnidiStreamCount = GetRandom((uint16_t)10, ThreadID);
+        QuicSettings.PeerUnidiStreamCount = GetRandom((uint16_t)10);
         QuicSettings.IsSet.PeerUnidiStreamCount = TRUE;
         // TODO - Randomize more of the settings.
 
