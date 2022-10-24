@@ -1274,7 +1274,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     Settings.Ports = std::vector<uint16_t>({9998, 9999});
     Settings.AlpnPrefix = "spin";
     Settings.MaxOperationCount = UINT64_MAX;
-    Settings.MaxFuzzIterationCount = 10;
+    Settings.MaxFuzzIterationCount = 1;
     Settings.LossPercent = 1;
     Settings.AllocFailDenominator = 0;
     Settings.RepeatCount = 1;
