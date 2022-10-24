@@ -36,6 +36,8 @@ class FuzzingData {
     // TODO: support bit level pointers
     std::vector<size_t> Ptrs;
     std::vector<size_t> NumIterated;
+    // hacky solution for Context overwrite in Callbacks
+    std::mutex mtx;
     bool Cyclic;
     size_t NumThread;
 
@@ -87,6 +89,10 @@ public:
     }
     template<typename T>
     bool TryGetRandom(T UpperBound, T* Val, uint16_t ThreadId = 0) {
+        if  (ThreadId == 0) {
+            // Hacky solution for ThreadId == 0 to be used from multiple thread
+            mtx.lock();
+        }
         int type_size = sizeof(T);
         if (!CheckBoundary(ThreadId, type_size)) {
             return false;
@@ -94,6 +100,9 @@ public:
         memcpy(Val, &data[Ptrs[ThreadId]] + EachSize * ThreadId, type_size);
         *Val = (T)(*Val % UpperBound);
         Ptrs[ThreadId] += type_size;
+        if (ThreadId == 0) {
+            mtx.unlock();
+        }
         return true;
     }
     size_t GetIterateCount(uint16_t ThreadId) {
