@@ -102,6 +102,7 @@ public:
             return false;
         }
         memcpy(Val, &data[Ptrs[ThreadId]] + EachSize[ThreadId] * ThreadId, type_size);
+        fprintf(stderr, "[%d] TryGetRandom sizeof:%d, value:%ld", ThreadId, type_size, (uint64_t)*Val);
         *Val = (T)(*Val % UpperBound);
         Ptrs[ThreadId] += type_size;
         if (ThreadId == IncrementalThreadId) {
@@ -788,6 +789,7 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
                 std::lock_guard<std::mutex> Lock(ctx->Lock);
                 auto Stream = ctx->TryGetStream();
                 if (Stream == nullptr) continue;
+                fprintf(stderr, "[%d][%p] StreamShutdown\n", ThreadID, Stream);
                 MsQuic.StreamShutdown(Stream, (QUIC_STREAM_SHUTDOWN_FLAGS)GetRandom(16), 0);
             }
             break;
@@ -1104,7 +1106,7 @@ CXPLAT_THREAD_CALLBACK(RunThread, Context)
 
         QUIC_REGISTRATION_CONFIG RegConfig;
         RegConfig.AppName = "spinquic";
-        RegConfig.ExecutionProfile = FuzzData ? QUIC_EXECUTION_PROFILE_TYPE_SCAVENGER : (QUIC_EXECUTION_PROFILE)GetRandom(4);
+        RegConfig.ExecutionProfile = QUIC_EXECUTION_PROFILE_TYPE_SCAVENGER;
 
         if (!QUIC_SUCCEEDED(MsQuic.RegistrationOpen(&RegConfig, &Gb.Registration))) {
             break;
@@ -1168,6 +1170,7 @@ CXPLAT_THREAD_CALLBACK(RunThread, Context)
             Config.Callback = ServerSpin;
             Config.Context = &Gb;
             ASSERT_ON_FAILURE(CxPlatThreadCreate(&Config, &Threads[0]));
+            fprintf(stderr, "spin_server launching\n");
         }
 
         if (Settings.RunClient) {
@@ -1175,6 +1178,7 @@ CXPLAT_THREAD_CALLBACK(RunThread, Context)
             Config.Callback = ClientSpin;
             Config.Context = &Gb;
             ASSERT_ON_FAILURE(CxPlatThreadCreate(&Config, &Threads[1]));
+            fprintf(stderr, "spin_client launching\n");
         }
 
         //
@@ -1241,10 +1245,11 @@ void start() {
             0, 0, "spin_run", RunThread, nullptr
         };
         CXPLAT_THREAD Threads[4];
-        uint32_t Count = FuzzData ? FuzzingData::NumSpinThread / 2 : (uint32_t)(rand() % (ARRAYSIZE(Threads) - 1) + 1);
+        uint32_t Count = 1;
 
         for (uint32_t j = 0; j < Count; ++j) {
             ASSERT_ON_FAILURE(CxPlatThreadCreate(&Config, &Threads[j]));
+            fprintf(stderr, "RunThread %d launched\n", j);
         }
 
         for (uint32_t j = 0; j < Count; ++j) {

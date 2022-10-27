@@ -545,6 +545,7 @@ QuicStreamShutdown(
     }
 
     if (!!(Flags & QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE)) {
+        fprintf(stderr, "[%p] QuicStreamShutdown\n", Stream);
         QuicStreamRecvShutdown(
             Stream,
             !!(Flags & QUIC_STREAM_SHUTDOWN_SILENT),

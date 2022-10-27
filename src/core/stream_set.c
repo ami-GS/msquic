@@ -180,6 +180,7 @@ QuicStreamSetReleaseStream(
     //
     // Remove the stream from the list of open streams.
     //
+    fprintf(stderr, "[%p] QuicStreamSetReleaseStream %d\n", Stream, (int)StreamSet->StreamTable->NumEntries);
     CxPlatHashtableRemove(StreamSet->StreamTable, &Stream->TableEntry, NULL);
     CxPlatListInsertTail(&StreamSet->ClosedStreams, &Stream->ClosedLink);
 
