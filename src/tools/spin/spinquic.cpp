@@ -102,7 +102,7 @@ public:
             return false;
         }
         memcpy(Val, &data[Ptrs[ThreadId]] + EachSize[ThreadId] * ThreadId, type_size);
-        fprintf(stderr, "[%d] TryGetRandom sizeof:%d, value:%ld", ThreadId, type_size, (uint64_t)*Val);
+        fprintf(stderr, "[%d] TryGetRandom sizeof:%d, value:%ld\n", ThreadId, type_size, (uint64_t)*Val);
         *Val = (T)(*Val % UpperBound);
         Ptrs[ThreadId] += type_size;
         if (ThreadId == IncrementalThreadId) {
