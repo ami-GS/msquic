@@ -36,7 +36,6 @@ TestConnection::TestConnection(
     CxPlatEventInitialize(&EventPeerClosed, TRUE, FALSE);
     CxPlatEventInitialize(&EventShutdownComplete, TRUE, FALSE);
     CxPlatEventInitialize(&EventResumptionTicketReceived, TRUE, FALSE);
-    fprintf(stderr, "%p TestConnection::TestConnection 0\n", QuicConnection);
 
     if (QuicConnection == nullptr) {
         TEST_FAILURE("Invalid handle passed into TestConnection.");
@@ -74,7 +73,6 @@ TestConnection::TestConnection(
             QuicConnectionHandler,
             this,
             &QuicConnection);
-    fprintf(stderr, "%p TestConnection::TestConnection 1\n", QuicConnection);
     if (QUIC_FAILED(Status)) {
         TEST_FAILURE("MsQuic->ConnectionOpen failed, 0x%x.", Status);
         QuicConnection = nullptr;
@@ -161,7 +159,6 @@ bool
 TestConnection::WaitForConnectionComplete()
 {
     if (!CxPlatEventWaitWithTimeout(EventConnectionComplete, GetWaitTimeout())) {
-        fprintf(stderr, "%p WaitForConnectionComplete\n", QuicConnection);
         TEST_FAILURE("WaitForConnectionComplete timed out after %u ms.", GetWaitTimeout());
         return false;
     }
@@ -772,14 +769,7 @@ TestConnection::HandleConnectionEvent(
             TEST_FAILURE("Resumption was expected!");
         }
         if (IsServer) {
-            fprintf(stderr, "%p QUIC_CONNECTION_EVENT_CONNECTED: Send Resumption ticket\n", QuicConnection);
             MsQuic->ConnectionSendResumptionTicket(QuicConnection, QUIC_SEND_RESUMPTION_FLAG_FINAL, 0, nullptr);
-        } else {
-            if (Resumed) {
-                fprintf(stderr, "%p QUIC_CONNECTION_EVENT_CONNECTED: Resumed\n", QuicConnection);
-            } else {
-                fprintf(stderr, "%p QUIC_CONNECTION_EVENT_CONNECTED\n", QuicConnection);
-            }
         }
 
         NegotiatedAlpn = Event->CONNECTED.NegotiatedAlpn;
@@ -802,7 +792,6 @@ TestConnection::HandleConnectionEvent(
                     TestIgnoreConnectionTimeout,
                     "[test] Ignoring timeout unexpected status because of random loss");
             } else {
-                fprintf(stderr, "%p QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT\n", QuicConnection);
                 TEST_FAILURE(
                     "Unexpected transport Close Error, expected=0x%x, actual=0x%x",
                     ExpectedTransportCloseStatus,
@@ -887,7 +876,6 @@ TestConnection::HandleConnectionEvent(
         break;
 
     case QUIC_CONNECTION_EVENT_RESUMPTION_TICKET_RECEIVED:
-        fprintf(stderr, "%p QUIC_CONNECTION_EVENT_RESUMPTION_TICKET_RECEIVED\n", QuicConnection);
         ResumptionTicket =
             (QUIC_BUFFER*)
             CXPLAT_ALLOC_NONPAGED(
@@ -906,7 +894,6 @@ TestConnection::HandleConnectionEvent(
         break;
 
     case QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED:
-        fprintf(stderr, "%p QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED\n", QuicConnection);
         if (AsyncCustomValidation) {
             return QUIC_STATUS_PENDING;
         }
@@ -946,13 +933,10 @@ TestConnection::HandleConnectionEvent(
         }
         break;
     case QUIC_CONNECTION_EVENT_RESUMED:
-        fprintf(stderr, "%p QUIC_CONNECTION_EVENT_RESUMED ", QuicConnection);
         if (AsyncCustomTicketValidation) {
-            fprintf(stderr, "Pending\n");
             AsyncCustomTicketValidation = false;
             return QUIC_STATUS_PENDING;
         }
-        fprintf(stderr, "Success\n");
 
         break;
 
