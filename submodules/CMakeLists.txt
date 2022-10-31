@@ -239,6 +239,7 @@ else()
             else()
                 set(OPENSSL_CONFIG_CMD ${CMAKE_CURRENT_SOURCE_DIR}/openssl/config
                             CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER})
+                list(APPEND OPENSSL_CONFIG_FLAGS -O0 -g3)
             endif()
         endif()
     elseif(CX_PLATFORM STREQUAL "darwin")
