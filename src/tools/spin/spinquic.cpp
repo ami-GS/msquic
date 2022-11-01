@@ -104,7 +104,7 @@ public:
         memcpy(Val, &data[Ptrs[ThreadId]] + EachSize[ThreadId] * ThreadId, type_size);
         *Val = (T)(*Val % UpperBound);
 #ifdef PRINT_RANDOM
-        fprintf(stderr, "[%d][%05d][%d][%05d] ", ThreadId, Ptrs[ThreadId] + EachSize[ThreadId] * ThreadId, type_size, (uint32_t)*Val);
+        fprintf(stderr, "[%d][%05ld][%d][%08ld] ", ThreadId, Ptrs[ThreadId] + EachSize[ThreadId] * ThreadId, type_size, (uint64_t)*Val);
         for (int i = 0; i < type_size; i++) {
             fprintf(stderr, "%02x ", *(uint8_t*)(&data[Ptrs[ThreadId]] + EachSize[ThreadId] * ThreadId + i));
         }
