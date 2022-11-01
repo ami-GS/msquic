@@ -102,8 +102,14 @@ public:
             return false;
         }
         memcpy(Val, &data[Ptrs[ThreadId]] + EachSize[ThreadId] * ThreadId, type_size);
-        //fprintf(stderr, "[%d] TryGetRandom sizeof:%d, value:%d\n", ThreadId, type_size, (uint16_t)*Val);
         *Val = (T)(*Val % UpperBound);
+#ifdef PRINT_RANDOM
+        fprintf(stderr, "[%d][%d][%d] ", ThreadId, type_size, (int)Val);
+        for (int i = 0; i < type_size; i++) {
+            fprintf(stderr, "%02x ", *(uint8_t*)(&data[Ptrs[ThreadId]] + EachSize[ThreadId] * ThreadId + i));
+        }
+        fprintf(stderr, "\n");
+#endif
         Ptrs[ThreadId] += type_size;
         if (ThreadId == IncrementalThreadId) {
             mux.unlock();
@@ -789,7 +795,7 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
                 std::lock_guard<std::mutex> Lock(ctx->Lock);
                 auto Stream = ctx->TryGetStream();
                 if (Stream == nullptr) continue;
-                fprintf(stderr, "[%d][%p] StreamShutdown\n", ThreadID, Stream);
+                fprintf(stderr, "[%d][%p][%p] StreamShutdown\n", ThreadID, Connection, Stream);
                 MsQuic.StreamShutdown(Stream, (QUIC_STREAM_SHUTDOWN_FLAGS)GetRandom(16), 0);
             }
             break;
