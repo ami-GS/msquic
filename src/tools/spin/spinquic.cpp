@@ -122,9 +122,8 @@ public:
             return false;
         }
         memcpy(Val, &data[Ptrs[ThreadId]] + EachSize[ThreadId] * ThreadId, type_size);
-        *Val = (T)(*Val % UpperBound);
 #ifdef PRINT_RANDOM
-        fprintf(stderr, "[%d][%05ld][%d][%08u] ", ThreadId, Ptrs[ThreadId] + EachSize[ThreadId] * ThreadId, type_size, (uint32_t)*Val);
+        fprintf(stderr, "[%d][%05ld][%d][%08u][%08u][%08u] ", ThreadId, Ptrs[ThreadId] + EachSize[ThreadId] * ThreadId, type_size, (uint32_t)*Val, (uint32_t)UpperBound, (uint32_t)(*Val % UpperBound));
         for (int i = 0; i < type_size; i++) {
             fprintf(stderr, "%02x ", *(uint8_t*)(&data[Ptrs[ThreadId]] + EachSize[ThreadId] * ThreadId + i));
         }
@@ -133,6 +132,7 @@ public:
         }
         fprintf(stderr, "\n");
 #endif
+        *Val = (T)(*Val % UpperBound);
         Ptrs[ThreadId] += type_size;
         if (ThreadId == IncrementalThreadId) {
             mux.unlock();
@@ -879,6 +879,7 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
             MsQuic.DatagramSend(Connection, Buffer, 1, (QUIC_SEND_FLAGS)GetRandom(8), nullptr);
         }
         default:
+            fprintf(stderr, "invalid op\n");
             break;
         }
     }
