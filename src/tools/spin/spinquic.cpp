@@ -686,7 +686,7 @@ void Spin(Gbs& Gb, LockableVector<HQUIC>& Connections, std::vector<HQUIC>* Liste
             continue; \
         }
 
-        switch (GetRandom((uint8_t)SpinQuicAPICallCount)) {
+        switch ((uint8_t)GetRandom(SpinQuicAPICallCount)) {
         case SpinQuicAPICallConnectionOpen:
             if (!IsServer) {
                 auto ctx = new SpinQuicConnection(ThreadID);
