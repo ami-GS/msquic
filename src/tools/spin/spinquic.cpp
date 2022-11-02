@@ -28,7 +28,7 @@
     } while (0)
 #define ASSERT_ON_NOT(x) CXPLAT_FRE_ASSERT(x)
 
-typedef enum {
+typedef enum : uint16_t {
     SpinQuicAPICallConnectionOpen = 0,
     SpinQuicAPICallConnectionStart,
     SpinQuicAPICallConnectionShutdown,
