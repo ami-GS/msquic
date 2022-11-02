@@ -28,7 +28,25 @@
     } while (0)
 #define ASSERT_ON_NOT(x) CXPLAT_FRE_ASSERT(x)
 
-enum SpinQuicAPICall : uint32_t;
+typedef enum {
+    SpinQuicAPICallConnectionOpen = 0,
+    SpinQuicAPICallConnectionStart,
+    SpinQuicAPICallConnectionShutdown,
+    SpinQuicAPICallConnectionClose,
+    SpinQuicAPICallStreamOpen,
+    SpinQuicAPICallStreamStart,
+    SpinQuicAPICallStreamSend,
+    SpinQuicAPICallStreamShutdown,
+    SpinQuicAPICallStreamClose,
+    SpinQuicAPICallSetParamConnection,
+    SpinQuicAPICallGetParamConnection,
+    SpinQuicAPICallSetParamStream,
+    SpinQuicAPICallGetParamStream,
+    SpinQuicAPICallDatagramSend,
+    SpinQuicAPICallStreamReceiveSetEnabled,
+    SpinQuicAPICallStreamReceiveComplete,
+    SpinQuicAPICallCount    // Always the last element
+} SpinQuicAPICall;
 
 class FuzzingData {
     const uint8_t* data;
@@ -247,26 +265,6 @@ struct SpinQuicGlobals {
 };
 
 typedef SpinQuicGlobals Gbs;
-
-enum SpinQuicAPICall : unsigned int {
-    SpinQuicAPICallConnectionOpen = 0,
-    SpinQuicAPICallConnectionStart,
-    SpinQuicAPICallConnectionShutdown,
-    SpinQuicAPICallConnectionClose,
-    SpinQuicAPICallStreamOpen,
-    SpinQuicAPICallStreamStart,
-    SpinQuicAPICallStreamSend,
-    SpinQuicAPICallStreamShutdown,
-    SpinQuicAPICallStreamClose,
-    SpinQuicAPICallSetParamConnection,
-    SpinQuicAPICallGetParamConnection,
-    SpinQuicAPICallSetParamStream,
-    SpinQuicAPICallGetParamStream,
-    SpinQuicAPICallDatagramSend,
-    SpinQuicAPICallStreamReceiveSetEnabled,
-    SpinQuicAPICallStreamReceiveComplete,
-    SpinQuicAPICallCount    // Always the last element
-};
 
 class SpinQuicConnection {
 public:
