@@ -148,7 +148,7 @@ T GetRandom(T UpperBound, uint16_t ThreadID = UINT16_MAX) {
     if (!FuzzData || ThreadID == UINT16_MAX) {
         return (T)(rand() % (int)UpperBound);
     }
-    uint64_t out = UINT64_MAX;
+    uint64_t out = 0;
 
     if ((uint64_t)UpperBound <= 0xff) {
         (void)FuzzData->TryGetRandom((uint8_t)UpperBound, (uint8_t*)&out, ThreadID);
