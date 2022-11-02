@@ -123,12 +123,9 @@ public:
         }
         memcpy(Val, &data[Ptrs[ThreadId]] + EachSize[ThreadId] * ThreadId, type_size);
 #ifdef PRINT_RANDOM
-        fprintf(stderr, "[%d][%05ld][%d][%08u][%08u][%08u] ", ThreadId, Ptrs[ThreadId] + EachSize[ThreadId] * ThreadId, type_size, (uint32_t)*Val, (uint32_t)UpperBound, (uint32_t)(*Val % UpperBound));
+        fprintf(stderr, "[%d][%05ld][%d][%08u][%04u][%04d] ", ThreadId, Ptrs[ThreadId] + EachSize[ThreadId] * ThreadId, type_size, (uint32_t)*Val, (uint32_t)UpperBound, (T)(*Val % UpperBound));
         for (int i = 0; i < type_size; i++) {
             fprintf(stderr, "%02x ", *(uint8_t*)(&data[Ptrs[ThreadId]] + EachSize[ThreadId] * ThreadId + i));
-        }
-        if (typeid(T) == typeid(SpinQuicAPICall)) {
-            fprintf(stderr, "\t[API]");
         }
         fprintf(stderr, "\n");
 #endif
@@ -641,6 +638,7 @@ void SpinQuicGetRandomParam(HQUIC Handle, uint16_t ThreadID)
 {
     for (uint32_t i = 0; i < GET_PARAM_LOOP_COUNT; ++i) {
         uint32_t Level = (uint32_t)GetRandom(ARRAYSIZE(ParamCounts));
+        fprintf(stderr, "Level======= %u", Level);
         uint32_t Param = (uint32_t)GetRandom(((ParamCounts[Level] & 0xFFFFFFF)) + 1);
         uint32_t Combined = ((Level+1) << 28) + Param;
 
