@@ -28,6 +28,8 @@
     } while (0)
 #define ASSERT_ON_NOT(x) CXPLAT_FRE_ASSERT(x)
 
+enum SpinQuicAPICall : uint32_t;
+
 class FuzzingData {
     const uint8_t* data;
     size_t size;
