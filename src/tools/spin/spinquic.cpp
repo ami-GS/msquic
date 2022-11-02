@@ -887,6 +887,7 @@ CXPLAT_THREAD_CALLBACK(ServerSpin, Context)
     if (FuzzData) {
         ThreadID = InterlockedIncrement16(&FuzzData->IncrementalThreadId) - 1;
     }
+    fprintf(stderr, "[%d] Start ServerSpin\n", ThreadID);
 
     Gbs& Gb = *(Gbs*)Context;
     bool InitializeSuccess = false;
@@ -995,6 +996,8 @@ CXPLAT_THREAD_CALLBACK(ClientSpin, Context)
     if (FuzzData) {
         ThreadID = InterlockedIncrement16(&FuzzData->IncrementalThreadId) - 1;
     }
+    fprintf(stderr, "[%d] Start ClientSpin\n", ThreadID);
+
 
     Gbs& Gb = *(Gbs*)Context;
     LockableVector<HQUIC> Connections;
@@ -1176,7 +1179,6 @@ CXPLAT_THREAD_CALLBACK(RunThread, Context)
             Config.Callback = ServerSpin;
             Config.Context = &Gb;
             ASSERT_ON_FAILURE(CxPlatThreadCreate(&Config, &Threads[0]));
-            fprintf(stderr, "spin_server launching\n");
         }
 
         if (Settings.RunClient) {
@@ -1184,7 +1186,6 @@ CXPLAT_THREAD_CALLBACK(RunThread, Context)
             Config.Callback = ClientSpin;
             Config.Context = &Gb;
             ASSERT_ON_FAILURE(CxPlatThreadCreate(&Config, &Threads[1]));
-            fprintf(stderr, "spin_client launching\n");
         }
 
         //
