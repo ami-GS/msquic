@@ -248,7 +248,7 @@ struct SpinQuicGlobals {
 
 typedef SpinQuicGlobals Gbs;
 
-typedef enum {
+enum SpinQuicAPICall : unsigned int {
     SpinQuicAPICallConnectionOpen = 0,
     SpinQuicAPICallConnectionStart,
     SpinQuicAPICallConnectionShutdown,
@@ -266,7 +266,7 @@ typedef enum {
     SpinQuicAPICallStreamReceiveSetEnabled,
     SpinQuicAPICallStreamReceiveComplete,
     SpinQuicAPICallCount    // Always the last element
-} SpinQuicAPICall;
+};
 
 class SpinQuicConnection {
 public:
