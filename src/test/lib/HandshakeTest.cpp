@@ -152,7 +152,7 @@ QuicTestConnect(
     )
 {
     QUIC_ADDRESS_FAMILY QuicAddrFamily = (Family == 4) ? QUIC_ADDRESS_FAMILY_INET : QUIC_ADDRESS_FAMILY_INET6;
-    MsQuicRegistration Registration;
+    MsQuicRegistration Registration(nullptr, QUIC_EXECUTION_PROFILE_TYPE_SCAVENGER);
     TEST_TRUE(Registration.IsValid());
 
     MsQuicAlpn Alpn1("MsQuicTest");

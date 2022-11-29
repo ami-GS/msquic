@@ -1741,7 +1741,36 @@ QuicCryptoCustomTicketValidationComplete(
 
     Crypto->TicketValidationPending = FALSE;
     if (Result) {
+        // Crypto->TlsState.ReadKey = QUIC_PACKET_KEY_INITIAL;
+        // Crypto->TlsState.WriteKey = QUIC_PACKET_KEY_INITIAL;
+        
+        // Crypto->TlsState.BufferLength = 0;
+        // Crypto->TlsState.BufferTotalLength = 0;
+        // Crypto->TlsState.BufferOffsetHandshake = 0;
+        // Crypto->TlsState.BufferOffset1Rtt = 0;
+        // Crypto->TlsState.ReadKeys[1] = NULL;
+        // Crypto->TlsState.ReadKeys[2] = NULL;
+        // Crypto->TlsState.ReadKeys[3] = NULL;
+        // Crypto->TlsState.ReadKeys[4] = NULL;
+        // Crypto->TlsState.ReadKeys[5] = NULL;
+
+        // Crypto->TlsState.WriteKeys[1] = NULL;
+        // Crypto->TlsState.WriteKeys[2] = NULL;
+        // Crypto->TlsState.WriteKeys[3] = NULL;
+        // Crypto->TlsState.WriteKeys[4] = NULL;
+        // Crypto->TlsState.WriteKeys[5] = NULL;
+        // Crypto->ResultFlags = 0;
+
+        // QUIC_CONNECTION* Connection = QuicCryptoGetConnection(Crypto);
+        // QUIC_CONFIGURATION* Configuration = Connection->Configuration;
+        // Crypto->Initialized = FALSE;
+        // uint8_t* Buffer = Crypto->RecvBuffer.Buffer;
+        // QuicCryptoInitialize(Crypto);
+        // Crypto->RecvBuffer.WrittenRanges.UsedLength = 1; // To pass QuicRecvBufferRead
+        // Crypto->RecvBuffer.Buffer = Buffer; // To pass "if" next to QuicCryptoTlsGetCompleteTlsMessageLength
+        //QuicCryptoInitializeTls(Crypto, Configuration->SecurityConfig, Connection->HandshakeTP);
         QuicCryptoProcessDataComplete(Crypto, Crypto->TicketValidationPendingBufferLength);
+        Crypto->TicketValidationPendingBufferLength = 0;
     } else {
         // TODO: start normal handshake.
     }
@@ -1858,6 +1887,11 @@ QuicCryptoProcessData(
 
     QuicCryptoValidate(Crypto);
 
+    QUIC_CONNECTION* Connection = QuicCryptoGetConnection(Crypto); // Crypto->RecvBuffer.WrittenRanges.PreAllocSubRanges: s:273, a:263
+    if (Buffer.Length == 96) {
+        fprintf(stderr, "HERE 2\n");
+    }
+    fprintf(stderr, "%p QuicCryptoProcessData -> CxPlatTlsProcessData Length: %d\n", Connection, Buffer.Length);
     Crypto->ResultFlags =
         CxPlatTlsProcessData(
             Crypto->TLS,
@@ -1865,6 +1899,7 @@ QuicCryptoProcessData(
             Buffer.Buffer,
             &Buffer.Length,
             &Crypto->TlsState);
+    fprintf(stderr, "%p CxPlatTlsProcessData ResultFlags:%d\n", Connection, Crypto->ResultFlags);
 
     QuicCryptoProcessDataComplete(Crypto, Buffer.Length);
 

@@ -2222,7 +2222,7 @@ QuicConnRecvResumptionTicket(
                 "Indicating QUIC_CONNECTION_EVENT_RESUMPTION_TICKET_RECEIVED");
             QUIC_STATUS Status = QuicConnIndicateEvent(Connection, &Event);
             if (Status == QUIC_STATUS_PENDING) {
-                Connection->Crypto.TicketValidationPending = TRUE;
+                //Connection->Crypto.TicketValidationPending = TRUE;
             }
 
             CXPLAT_FREE(ClientTicket, QUIC_POOL_CLIENT_CRYPTO_TICKET);
@@ -2518,6 +2518,7 @@ QuicConnSetConfiguration(
         }
 
         Connection->OrigDestCID->Length = DestCid->CID.Length;
+        fprintf(stderr, "%p 2520: Connection->OrigDestCID->Length = %d\n", Connection, Connection->OrigDestCID->Length);
         CxPlatCopyMemory(
             Connection->OrigDestCID->Data,
             DestCid->CID.Data,
@@ -3849,6 +3850,7 @@ QuicConnRecvHeader(
                 }
 
                 Connection->OrigDestCID->Length = Token.Encrypted.OrigConnIdLength;
+                fprintf(stderr, "%p 3853: Connection->OrigDestCID->Length = %d\n", Connection, Connection->OrigDestCID->Length);
                 CxPlatCopyMemory(
                     Connection->OrigDestCID->Data,
                     Token.Encrypted.OrigConnId,
@@ -3877,6 +3879,7 @@ QuicConnRecvHeader(
             }
 
             Connection->OrigDestCID->Length = Packet->DestCidLen;
+            fprintf(stderr, "%p 3882: Connection->OrigDestCID->Length = %d\n", Connection, Connection->OrigDestCID->Length);
             CxPlatCopyMemory(
                 Connection->OrigDestCID->Data,
                 Packet->DestCid,
@@ -6424,7 +6427,7 @@ QuicConnParamSet(
             Status = QUIC_STATUS_INVALID_PARAMETER;
             break;
         }
-
+        fprintf(stderr, "QUIC_PARAM_CONN_RESUMPTION_TICKET_VALID internal\n");
         QuicCryptoCustomTicketValidationComplete(&Connection->Crypto, *(BOOLEAN*)Buffer);
         Status = QUIC_STATUS_SUCCESS;
         break;
